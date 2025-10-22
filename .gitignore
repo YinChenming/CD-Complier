@@ -1,0 +1,9 @@
+out/
+*.m
+*.txt
+*.o
+*.x
+*.s
+asm
+machine
+mini
