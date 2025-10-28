@@ -1,3 +1,6 @@
+#ifndef OBJ_H
+#define OBJ_H
+
 /* register */
 #define R_UNDEF -1
 #define R_FLAG 0
@@ -30,3 +33,5 @@ extern int oon; /* offset of next frame */
 
 void tac_obj();
 
+
+#endif	// OBJ_H

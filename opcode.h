@@ -1,3 +1,6 @@
+#ifndef OPCODE_H
+#define OPCODE_H
+
 /* opcode of machine instruction */
 #define  I_END	  0x00
 #define  I_NOP    0x01
@@ -34,3 +37,4 @@
 #define  I_JGZ_1  0x87
 #define  I_MAX    0xFF
 
+#endif  // OPCODE_H

@@ -7,3 +7,8 @@ out/
 asm
 machine
 mini
+.vscode/
+.idea/
+dot/
+*.dot
+*.png

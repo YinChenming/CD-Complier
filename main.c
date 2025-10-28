@@ -5,6 +5,7 @@
 #include "tac.h"
 #include "mini.y.h"
 #include "obj.h"
+#include "opt.h"
 
 FILE *file_x, *file_s;
 
@@ -20,7 +21,7 @@ void error(const char *format, ...)
 void tac_list()
 {
 	out_str(file_x, "\n# tac list\n\n");
-	
+
 	TAC * cur;
 	for(cur = tac_first; cur !=NULL; cur=cur->next)
 	{
@@ -33,7 +34,7 @@ void tac_list()
 int main(int argc,   char *argv[])
 {
 	if(argc != 2) error("usage: %s filename\n", argv[0]);
-	
+
 	char *input = argv[1];
 	if(input[strlen(input)-1]!='m') error("%s does not end with .m\n", input);
 
@@ -49,6 +50,10 @@ int main(int argc,   char *argv[])
 
 	tac_init();
 	yyparse();
+	CFG *cfg = cfg_init(tac_first);
+	cfg_to_dot(cfg, "dot/");
+	cfg_free(cfg);
+
 	tac_list();
 	tac_obj();
 

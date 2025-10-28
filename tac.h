@@ -1,3 +1,6 @@
+#ifndef TAC_H
+#define TAC_H
+
 /* type of symbol */
 #define SYM_UNDEF 0
 #define SYM_VAR 1
@@ -6,7 +9,7 @@
 #define SYM_INT 4
 #define SYM_LABEL 5
 
-/* type of tac */ 
+/* type of tac */
 #define TAC_UNDEF 0 /* undefine */
 #define TAC_ADD 1 /* a=b+c */
 #define TAC_SUB 2 /* a=b-c */
@@ -33,14 +36,16 @@
 #define TAC_INPUT 23 /* input a */
 #define TAC_OUTPUT 24 /* output a */
 
+#include <stdio.h>	// get defination of FILE
+
 typedef struct sym
 {
-	/*	
+	/*
 		type:SYM_VAR name:abc value:98 offset:-1
 		type:SYM_VAR name:bcd value:99 offset:4
-		type:SYM_LABEL name:L1/max			
-		type:SYM_INT value:1			
-		type:SYM_FUNC name:max address:1234		
+		type:SYM_LABEL name:L1/max
+		type:SYM_INT value:1
+		type:SYM_FUNC name:max address:1234
 		type:SYM_TEXT name:"hello" label:10
 	*/
 	int type;
@@ -49,7 +54,7 @@ typedef struct sym
 	int offset;
 	int value;
 	int label;
-	struct tac *address; /* SYM_FUNC */	
+	struct tac *address; /* SYM_FUNC */
 	struct sym *next;
 	void *etc;
 } SYM;
@@ -93,7 +98,7 @@ SYM *mk_text(char *text);
 TAC *mk_tac(int op, SYM *a, SYM *b, SYM *c);
 EXP *mk_exp(EXP *next, SYM *ret, TAC *code);
 char *mk_lstr(int i);
-SYM *get_var(char *name); 
+SYM *get_var(char *name);
 SYM *declare_func(char *name);
 TAC *declare_var(char *name);
 TAC *declare_para(char *name);
@@ -110,3 +115,5 @@ EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
 EXP *do_un( int unop, EXP *exp);
 EXP *do_call_ret(char *name, EXP *arglist);
 void error(const char *format, ...);
+
+#endif	// TAC_H
