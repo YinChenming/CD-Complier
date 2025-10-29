@@ -12,3 +12,5 @@ mini
 dot/
 *.dot
 *.png
+case/
+testcase/

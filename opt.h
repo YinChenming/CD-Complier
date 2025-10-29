@@ -9,8 +9,8 @@ extern "C" {
 #include "tac.h"
 typedef struct CFG CFG;
 CFG *cfg_init(TAC*);
-void cfg_free(CFG*);
-void cfg_to_dot(CFG*, char *path);
+void cfg_free(const CFG*);
+void cfg_to_dot(const CFG*, const char *path);
 
 void run_optimization();
 void run_local_optimization();
