@@ -60,7 +60,7 @@ R[0-9]*  {
 	return REG;
 }
 
-[A-Za-z]([A-Za-z]|[0-9])*  {  
+[A-Za-z]([A-Za-z]|[0-9])*  {
 	yylval.string = strdup(yytext);
 	return LABEL;
 }
@@ -75,4 +75,3 @@ int yywrap()
 {
 	return 1;
 }
-

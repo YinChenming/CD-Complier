@@ -13,7 +13,7 @@ int oof; /* offset of formal */
 int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
 
-void rdesc_clear(int r)    
+void rdesc_clear(int r)
 {
 	rdesc[r].var = NULL;
 	rdesc[r].mod = 0;
@@ -32,7 +32,7 @@ void rdesc_fill(int r, SYM *s, int mod)
 
 	rdesc[r].var=s;
 	rdesc[r].mod=mod;
-}     
+}
 
 void asm_write_back(int r)
 {
@@ -51,10 +51,10 @@ void asm_write_back(int r)
 	}
 }
 
-void asm_load(int r, SYM *s) 
+void asm_load(int r, SYM *s)
 {
 	/* already in a reg */
-	for(int i=R_GEN; i < R_NUM; i++)  
+	for(int i=R_GEN; i < R_NUM; i++)
 	{
 		if(rdesc[i].var==s)
 		{
@@ -66,7 +66,7 @@ void asm_load(int r, SYM *s)
 			return;
 		}
 	}
-	
+
 	/* not in a reg */
 	switch(s->type)
 	{
@@ -93,11 +93,11 @@ void asm_load(int r, SYM *s)
 	}
 
 	// rdesc_fill(r, s, UNMODIFIED);
-}   
+}
 
 int reg_alloc(SYM *s)
 {
-	int r; 
+	int r;
 
 	/* already in a register */
 	for(r=R_GEN; r < R_NUM; r++)
@@ -120,7 +120,7 @@ int reg_alloc(SYM *s)
 		}
 
 	}
-	
+
 	/* unmodifed register */
 	for(r=R_GEN; r < R_NUM; r++)
 	{
@@ -134,7 +134,7 @@ int reg_alloc(SYM *s)
 
 	/* random register */
 	srand(time(NULL));
-	int random = (rand() % (R_NUM - R_GEN)) + R_GEN; 
+	int random = (rand() % (R_NUM - R_GEN)) + R_GEN;
 	asm_write_back(random);
 	asm_load(random, s);
 	rdesc_fill(random, s, UNMODIFIED);
@@ -143,33 +143,33 @@ int reg_alloc(SYM *s)
 
 void asm_bin(char *op, SYM *a, SYM *b, SYM *c)
 {
-	int reg_b=-1, reg_c=-1; 
+	int reg_b=-1, reg_c=-1;
 
 	while(reg_b == reg_c)
 	{
-		reg_b = reg_alloc(b); 
-		reg_c = reg_alloc(c); 
+		reg_b = reg_alloc(b);
+		reg_c = reg_alloc(c);
 	}
-	
+
 	out_str(file_s, "	%s R%u,R%u\n", op, reg_b, reg_c);
 	rdesc_fill(reg_b, a, MODIFIED);
-}   
+}
 
 void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 {
-	int reg_b=-1, reg_c=-1; 
+	int reg_b=-1, reg_c=-1;
 
 	while(reg_b == reg_c)
 	{
-		reg_b = reg_alloc(b); 
-		reg_c = reg_alloc(c); 
+		reg_b = reg_alloc(b);
+		reg_c = reg_alloc(c);
 	}
 
 	out_str(file_s, "	SUB R%u,R%u\n", reg_b, reg_c);
 	out_str(file_s, "	TST R%u\n", reg_b);
 
 	switch(op)
-	{		
+	{
 		case TAC_EQ:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JEZ R3\n");
@@ -178,7 +178,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 		out_str(file_s, "	JMP R3\n");
 		out_str(file_s, "	LOD R%u,1\n", reg_b);
 		break;
-		
+
 		case TAC_NE:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JEZ R3\n");
@@ -187,7 +187,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 		out_str(file_s, "	JMP R3\n");
 		out_str(file_s, "	LOD R%u,0\n", reg_b);
 		break;
-		
+
 		case TAC_LT:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JLZ R3\n");
@@ -196,7 +196,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 		out_str(file_s, "	JMP R3\n");
 		out_str(file_s, "	LOD R%u,1\n", reg_b);
 		break;
-		
+
 		case TAC_LE:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JGZ R3\n");
@@ -205,7 +205,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 		out_str(file_s, "	JMP R3\n");
 		out_str(file_s, "	LOD R%u,0\n", reg_b);
 		break;
-		
+
 		case TAC_GT:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JGZ R3\n");
@@ -214,7 +214,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 		out_str(file_s, "	JMP R3\n");
 		out_str(file_s, "	LOD R%u,1\n", reg_b);
 		break;
-		
+
 		case TAC_GE:
 		out_str(file_s, "	LOD R3,R1+40\n");
 		out_str(file_s, "	JLZ R3\n");
@@ -228,7 +228,7 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 	/* Delete c from the descriptors and insert a */
 	rdesc_clear(reg_b);
 	rdesc_fill(reg_b, a, MODIFIED);
-}   
+}
 
 void asm_cond(char *op, SYM *a,  char *l)
 {
@@ -247,8 +247,8 @@ void asm_cond(char *op, SYM *a,  char *l)
 		else out_str(file_s, "	TST R%u\n", reg_alloc(a)); /* Load into new register */
 	}
 
-	out_str(file_s, "	%s %s\n", op, l); 
-} 
+	out_str(file_s, "	%s %s\n", op, l);
+}
 
 void asm_call(SYM *a, SYM *b)
 {
@@ -265,7 +265,7 @@ void asm_call(SYM *a, SYM *b)
 	if(a != NULL)
 	{
 		r = reg_alloc(a);
-		out_str(file_s, "	LOD R%u,R%u\n", r, R_TP);	
+		out_str(file_s, "	LOD R%u,R%u\n", r, R_TP);
 		rdesc[r].mod = MODIFIED;
 	}
 	oon=0;
@@ -284,7 +284,7 @@ void asm_return(SYM *a)
 	out_str(file_s, "	LOD R3,(R2+4)\n");	/* return address */
 	out_str(file_s, "	LOD R2,(R2)\n");	/* restore bp */
 	out_str(file_s, "	JMP R3\n");			/* return */
-}   
+}
 
 void asm_head()
 {
@@ -349,7 +349,7 @@ void asm_static(void)
 	}
 
 	out_str(file_s, "STATIC:\n");
-	out_str(file_s, "	DBN 0,%u\n", tos);				
+	out_str(file_s, "	DBN 0,%u\n", tos);
 	out_str(file_s, "STACK:\n");
 }
 
@@ -399,7 +399,11 @@ void asm_code(TAC *c)
 
 		case TAC_INPUT:
 		r=reg_alloc(c->a);
+	#ifdef NEW_ASM
+		out_str(file_s, "	ITI\n");
+	#else
 		out_str(file_s, "	IN\n");
+	#endif
 		out_str(file_s, "	LOD R%u,R15\n", r);
 		rdesc[r].mod = MODIFIED;
 		return;
@@ -409,12 +413,20 @@ void asm_code(TAC *c)
 		{
 			r=reg_alloc(c->a);
 			out_str(file_s, "	LOD R15,R%u\n", r);
+#ifdef NEW_ASM
+			out_str(file_s, "	OTI\n");
+#else
 			out_str(file_s, "	OUTN\n");
+#endif
 		} else if(c->a->type == SYM_TEXT)
 		{
 			r=reg_alloc(c->a);
 			out_str(file_s, "	LOD R15,R%u\n", r);
+#ifdef NEW_ASM
+			out_str(file_s, "	OTS\n");
+#else
 			out_str(file_s, "	OUTS\n");
+#endif
 		}
 		return;
 
@@ -494,7 +506,7 @@ void tac_obj()
 	oon=0;
 
 	for(int r=0; r < R_NUM; r++) rdesc[r].var=NULL;
-	
+
 	asm_head();
 
 	TAC * cur;
@@ -507,5 +519,4 @@ void tac_obj()
 	}
 	asm_tail();
 	asm_static();
-} 
-
+}

@@ -31,4 +31,15 @@ test:
 	./asm test.s; \
 	./machine test.o
 
-.PHONY: clean all $(TARGETS) test
+NEW_ASM_NAME = asm-machine
+NEW_ASM_DIR = ./$(NEW_ASM_NAME)
+
+new: CFLAGS += -DNEW_ASM
+new: mini $(NEW_ASM_DIR)/asm.l $(NEW_ASM_DIR)/asm.y $(NEW_ASM_DIR)/machine.c $(NEW_ASM_DIR)/inst.h | $(OUT_DIR)
+	lex -o $(OUT_DIR)/asm.l.c $(NEW_ASM_DIR)/asm.l
+	yacc -d -o $(OUT_DIR)/asm.y.c $(NEW_ASM_DIR)/asm.y
+	$(CC) $(CFLAGS) -I$(NEW_ASM_NAME) $(OUT_DIR)/asm.l.c $(OUT_DIR)/asm.y.c -o asm
+	$(CC) $(CFLAGS) -I$(NEW_ASM_NAME) $(NEW_ASM_DIR)/machine.c -o machine
+
+
+.PHONY: clean all $(TARGETS) test new

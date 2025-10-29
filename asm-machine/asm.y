@@ -28,7 +28,7 @@ int number(char * name)
 
 	while(label[index].name != NULL)
 	{
-		if(!strcmp(label[index].name, name)) 
+		if(!strcmp(label[index].name, name))
 			return index;
 		index++;
 	}
@@ -58,7 +58,7 @@ void byte2(int  n)
 		putchar(n>>8);
 	}
 	ip+=2;
-}	
+}
 
 void byte4(int n)
 {
@@ -244,9 +244,9 @@ jmp_stmt : JMP LABEL
 | JMP REG
 {
 	byte2(I_JMP_1);
-	byte1($2);		
-	byte1(0);	
-	byte4(0);				
+	byte1($2);
+	byte1(0);
+	byte4(0);
 }
 ;
 
@@ -260,9 +260,9 @@ jez_stmt : JEZ LABEL
 | JEZ REG
 {
 	byte2(I_JEZ_1) ;
-	byte1($2);		
-	byte1(0);	
-	byte4(0);	
+	byte1($2);
+	byte1(0);
+	byte4(0);
 }
 ;
 
@@ -276,9 +276,9 @@ jlz_stmt : JLZ LABEL
 | JLZ REG
 {
 	byte2(I_JLZ_1) ;
-	byte1( $2 ) ;		
-	byte1(0);	
-	byte4(0);	
+	byte1( $2 ) ;
+	byte1(0);
+	byte4(0);
 }
 ;
 
@@ -292,11 +292,11 @@ jgz_stmt : JGZ LABEL
 | JGZ REG
 {
 	byte2(I_JGZ_1) ;
-	byte1( $2 ) ;		
-	byte1(0);	
-	byte4(0);	
+	byte1( $2 ) ;
+	byte1(0);
+	byte4(0);
 }
-;			
+;
 
 lod_stmt : LOD REG ',' INTEGER
 {
@@ -517,7 +517,7 @@ dbs_stmt : dbs_stmt ',' INTEGER { byte1($3); }
 
 %%
 
-void yyerror(char* msg) 
+void yyerror(char* msg)
 {
 	fprintf(stderr, "%s: line %d\n", msg, yylineno);
 	exit(0);
@@ -530,7 +530,7 @@ int main(int argc,   char *argv[])
 		fprintf(stderr, "usage: %s filename\n", argv[0]);
 		exit(0);
 	}
-	
+
 	char *input, *output;
 
 	input = argv[1];
@@ -565,4 +565,3 @@ int main(int argc,   char *argv[])
 
 	return 0;
 }
-
