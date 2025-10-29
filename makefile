@@ -47,7 +47,8 @@ $(OUT_DIR)/%.y.o: $(OUT_DIR)/%.y.c
 $(OUT_DIR)/main.o: $(OUT_DIR)/mini.y.h
 
 test: $(t).m
-	./mini $(t).m
+	@$(MAKE) clean_dot
+	@./mini $(t).m
 	@$(MAKE) dot; \
 	./asm $(t).s; \
 	./machine $(t).o
@@ -55,20 +56,21 @@ test: $(t).m
 DOT_DIR_NAME = dot
 DOT_DIR = ./$(DOT_DIR_NAME)
 DOT_FILES := $(wildcard $(DOT_DIR)/*.dot)
-PNG_FILES := $(patsubst %.dot,%.png,$(DOT_FILES))
+SVG_FILES := $(patsubst %.dot,%.svg,$(DOT_FILES))
 
 clean_dot:
 	rm -rf $(DOT_DIR)
 
-dot: $(PNG_FILES)
+dot: $(SVG_FILES)
 
-$(DOT_DIR)/%.png: $(DOT_DIR)/%.dot | $(DOT_DIR)/
-	dot -Tpng -o $@ $<
+$(DOT_DIR)/%.svg: $(DOT_DIR)/%.dot | $(DOT_DIR)/
+	dot -Tsvg -o $@ $<
 
 $(DOT_DIR)/:
 	@mkdir $(DOT_DIR)
 
 clean:
+	@find ./ | grep -E '^\./[^.].*\.(o|s|x|dot|png)$$' | xargs rm -f
 	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o core $(TARGETS) $(DOT_DIR)
 
 NEW_ASM_NAME = asm-machine

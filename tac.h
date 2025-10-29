@@ -36,46 +36,43 @@
 #define TAC_INPUT 23 /* input a */
 #define TAC_OUTPUT 24 /* output a */
 
-#include <stdio.h>	// get defination of FILE
+#include <stdio.h> // get defination of FILE
 
-typedef struct sym
-{
-	/*
-		type:SYM_VAR name:abc value:98 offset:-1
-		type:SYM_VAR name:bcd value:99 offset:4
-		type:SYM_LABEL name:L1/max
-		type:SYM_INT value:1
-		type:SYM_FUNC name:max address:1234
-		type:SYM_TEXT name:"hello" label:10
-	*/
-	int type;
-	int scope; /* 0:global, 1:local */
-	char *name;
-	int offset;
-	int value;
-	int label;
-	struct tac *address; /* SYM_FUNC */
-	struct sym *next;
-	void *etc;
+typedef struct sym {
+    /*
+        type:SYM_VAR name:abc value:98 offset:-1
+        type:SYM_VAR name:bcd value:99 offset:4
+        type:SYM_LABEL name:L1/max
+        type:SYM_INT value:1
+        type:SYM_FUNC name:max address:1234
+        type:SYM_TEXT name:"hello" label:10
+    */
+    int type;
+    int scope; /* 0:global, 1:local */
+    char *name;
+    int offset;
+    int value;
+    int label;
+    struct tac *address; /* SYM_FUNC */
+    struct sym *next;
+    void *etc;
 } SYM;
 
-typedef struct tac
-{
-	struct tac  *next;
-	struct tac  *prev;
-	int op;
-	SYM *a;
-	SYM *b;
-	SYM *c;
-	void *etc;
+typedef struct tac {
+    struct tac *next;
+    struct tac *prev;
+    int op;
+    SYM *a;
+    SYM *b;
+    SYM *c;
+    void *etc;
 } TAC;
 
-typedef struct exp
-{
-	struct exp *next; /* for argument list */
-	TAC *tac; /* code */
-	SYM *ret; /* return value */
-	void *etc;
+typedef struct exp {
+    struct exp *next; /* for argument list */
+    TAC *tac; /* code */
+    SYM *ret; /* return value */
+    void *etc;
 } EXP;
 
 /* global var */
@@ -102,7 +99,7 @@ SYM *get_var(char *name);
 SYM *declare_func(char *name);
 TAC *declare_var(char *name);
 TAC *declare_para(char *name);
-TAC *do_func(SYM *name,    TAC *args, TAC *code);
+TAC *do_func(SYM *name, TAC *args, TAC *code);
 TAC *do_assign(SYM *var, EXP *exp);
 TAC *do_output(SYM *var);
 TAC *do_input(SYM *var);
@@ -110,10 +107,10 @@ TAC *do_call(char *name, EXP *arglist);
 TAC *do_if(EXP *exp, TAC *stmt);
 TAC *do_test(EXP *exp, TAC *stmt1, TAC *stmt2);
 TAC *do_while(EXP *exp, TAC *stmt);
-EXP *do_bin( int binop, EXP *exp1, EXP *exp2);
-EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
-EXP *do_un( int unop, EXP *exp);
+EXP *do_bin(int binop, EXP *exp1, EXP *exp2);
+EXP *do_cmp(int binop, EXP *exp1, EXP *exp2);
+EXP *do_un(int unop, EXP *exp);
 EXP *do_call_ret(char *name, EXP *arglist);
 void error(const char *format, ...);
 
-#endif	// TAC_H
+#endif // TAC_H

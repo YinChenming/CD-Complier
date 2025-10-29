@@ -1,5 +1,7 @@
+#ifndef INST_H
+#define INST_H
 /* opcode of machine instruction */
-#define  I_END	  0x00
+#define  I_END    0x00
 #define  I_NOP    0x01
 #define  I_OTC    0x02
 #define  I_OTI    0x03
@@ -40,3 +42,4 @@
 #define  I_JLZ_1  0x85
 #define  I_JGZ_0  0x86
 #define  I_JGZ_1  0x87
+#endif  // INST_H

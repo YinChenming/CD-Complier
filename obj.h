@@ -2,7 +2,7 @@
 #define OBJ_H
 
 /* register */
-#define R_UNDEF -1
+#define R_UNDEF (-1)
 #define R_FLAG 0
 #define R_IP 1
 #define R_BP 2
@@ -12,18 +12,18 @@
 #define R_NUM 16
 
 /* frame */
-#define FORMAL_OFF -4 	/* first formal parameter */
-#define OBP_OFF 0 		/* dynamic chain */
-#define RET_OFF 4 		/* ret address */
-#define LOCAL_OFF 8 		/* local var */
+#define FORMAL_OFF (-4) /* first formal parameter */
+#define OBP_OFF 0 /* dynamic chain */
+#define RET_OFF 4 /* ret address */
+#define LOCAL_OFF 8 /* local var */
 
 #define MODIFIED 1
 #define UNMODIFIED 0
 
 struct rdesc /* register descriptor */
 {
-	struct sym *var;
-	int mod;
+    struct sym *var;
+    int mod;
 };
 
 extern int tos; /* top of static */
@@ -34,4 +34,4 @@ extern int oon; /* offset of next frame */
 void tac_obj();
 
 
-#endif	// OBJ_H
+#endif // OBJ_H
