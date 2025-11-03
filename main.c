@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "mini.y.h"
 #include "obj.h"
 #include "opt.h"
 #include "tac.h"
+
+// mini.y.h must be at the la
+#include "mini.y.h"
 
 FILE *file_x, *file_s;
 

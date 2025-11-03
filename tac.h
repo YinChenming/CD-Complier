@@ -36,7 +36,7 @@
 #define TAC_INPUT 23 /* input a */
 #define TAC_OUTPUT 24 /* output a */
 
-#include <stdio.h> // get defination of FILE
+#include <stdio.h> // get definition of FILE
 
 typedef struct sym {
     /*
