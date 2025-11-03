@@ -2,9 +2,9 @@
 #define OPCODE_H
 
 /* opcode of machine instruction */
-#define  I_END	  0x00
+#define  I_END    0x00
 #define  I_NOP    0x01
-#define  I_OUT_C    0x02
+#define  I_OUT_C  0x02
 #define  I_IN     0x03
 #define  I_OUT_N  0x04
 #define  I_OUT_S  0x05

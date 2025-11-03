@@ -24,12 +24,13 @@ $(OUT_DIR):
 	@mkdir $(OUT_DIR) -v -p
 
 clean:
+	@find ./ | grep -E '^\./[^.].*\.[osx]$$' | xargs rm -f
 	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o core $(TARGETS)
 
-test:
-	./mini test.m; \
-	./asm test.s; \
-	./machine test.o
+test: $(t).m
+	./mini $(t).m; \
+	./asm $(t).s; \
+	./machine $(t).o
 
 NEW_ASM_NAME = asm-machine
 NEW_ASM_DIR = ./$(NEW_ASM_NAME)

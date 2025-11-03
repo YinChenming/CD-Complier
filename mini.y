@@ -7,6 +7,27 @@
 int yylex();
 void yyerror(char* msg);
 
+int hex2char(char* str, int len)
+{
+	unsigned char c = 0, d;
+	while(len--)
+	{
+		d =  *(str++);
+		if ('0' <= d && '9' >= d)
+			d -= '0';
+		else if ('A' <= d && 'F' >= d)
+			d = d - 'A' + 10;
+		else if ('a' <= d && 'f' >= d)
+			d = d - 'a' + 10;
+		else {
+			error("Invalid hex character '%c'", d);
+			return -1;
+		}
+		c = c << 4 | d;
+	}
+	return c;
+}
+
 %}
 
 %union
@@ -18,15 +39,15 @@ void yyerror(char* msg);
 	EXP	*exp;
 }
 
-%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
-%token <string> INTEGER IDENTIFIER TEXT
+%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN CHAR
+%token <string> INTEGER IDENTIFIER TEXT CHARACTER
 
 %left EQ NE LT LE GT GE
 %left '+' '-'
 %left '*' '/'
 %right UMINUS
 
-%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
+%type <tac> program function_declaration_list function_declaration function parameter_list parameter variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
 %type <exp> argument_list expression_list expression call_expression
 %type <sym> function_head
 
@@ -54,16 +75,28 @@ declaration : INT variable_list ';'
 {
 	$$=$2;
 }
+| CHAR variable_list ';'
+{
+	TAC *p = $2;
+	SYM *sym;
+	$$=$2;
+	while (p && p->op == TAC_VAR)
+	{
+		sym = p->a;
+		sym->value_type = SYM_VAL_CHAR;
+		p = p->prev;
+	}
+}
 ;
 
 variable_list : IDENTIFIER
 {
-	$$=declare_var($1);
-}               
+	$$=declare_var($1, SYM_VAL_INT);
+}
 | variable_list ',' IDENTIFIER
 {
-	$$=join_tac($1, declare_var($3));
-}               
+	$$=join_tac($1, declare_var($3, SYM_VAL_INT));
+}
 ;
 
 function : function_head '(' parameter_list ')' block
@@ -81,23 +114,46 @@ function : function_head '(' parameter_list ')' block
 
 function_head : IDENTIFIER
 {
-	$$=declare_func($1);
+	$$=declare_func($1, SYM_VAL_INT);	// default return value for a function is INT
+	scope=1; /* Enter local scope. */
+	sym_tab_local=NULL; /* Init local symbol table. */
+}
+| INT IDENTIFIER
+{
+	$$=declare_func($2, SYM_VAL_INT);	// default return value for a function is INT
+	scope=1; /* Enter local scope. */
+	sym_tab_local=NULL; /* Init local symbol table. */
+}
+| CHAR IDENTIFIER
+{
+	$$=declare_func($2, SYM_VAL_CHAR);	// default return value for a function is INT
 	scope=1; /* Enter local scope. */
 	sym_tab_local=NULL; /* Init local symbol table. */
 }
 ;
 
-parameter_list : IDENTIFIER
+parameter_list : parameter
+| parameter_list ',' parameter
 {
-	$$=declare_para($1);
-}               
-| parameter_list ',' IDENTIFIER
-{
-	$$=join_tac($1, declare_para($3));
-}               
+	$$=join_tac($1, $3);
+}
 |
 {
 	$$=NULL;
+}
+;
+
+parameter: IDENTIFIER
+{
+	$$=declare_para($1, SYM_VAL_INT);
+}
+| INT IDENTIFIER
+{
+	$$=declare_para($2, SYM_VAL_INT);
+}
+| CHAR IDENTIFIER
+{
+	$$=declare_para($2, SYM_VAL_CHAR);
 }
 ;
 
@@ -119,7 +175,7 @@ statement : assignment_statement ';'
 block : '{' declaration_list statement_list '}'
 {
 	$$=join_tac($2, $3);
-}               
+}
 ;
 
 declaration_list        :
@@ -136,7 +192,7 @@ statement_list : statement
 | statement_list statement
 {
 	$$=join_tac($1, $2);
-}               
+}
 ;
 
 assignment_statement : IDENTIFIER '=' expression
@@ -192,10 +248,61 @@ expression : expression '+' expression
 | '(' expression ')'
 {
 	$$=$2;
-}               
+}
 | INTEGER
 {
-	$$=mk_exp(NULL, mk_const(atoi($1)), NULL);
+	$$=mk_exp(NULL, mk_const(atoi($1), SYM_VAL_INT), NULL);
+}
+| CHARACTER
+{
+	int c = -1;
+	int len = strlen($1);
+	if (*$1 != '\'' || $1[len-1] != '\'' || len < 3)
+	{
+		error("Unknown char '%s'", $1);
+		return;
+	}
+	if (len == 3)
+	{
+		c = $1[1];
+	} else if ($1[1] == '\\')
+	{
+		switch($1[2])
+		{
+			case '\\': c = '\\'; break;
+			case 'n' : c = '\n'; break;
+			case 't' : c = '\t'; break;
+			case 'b' : c = '\b'; break;
+			case 'a' : c = '\a'; break;
+			case 'f' : c = '\f'; break;
+			case 'v' : c = '\v'; break;
+			case '\'': c = '\''; break;
+			case '\"': c = '\"'; break;
+			case '0' : c = '\0'; break;
+			case 'x': case 'X':
+				if (len > 4)
+				{
+					c = 'x'; break;
+				}
+			// fallthrough!!
+			default:
+				c = -1;
+				error("Invalid escape sequence '\\%c'", $1[2]);
+				return;
+		}
+		if (c == 'x')
+		{
+			int result = hex2char($1+3, len-4);
+			if (result == -1)
+				return;
+			c = (char) result;
+		}
+	} else
+	{
+		error("Invalid char %s", $1);
+		return;
+	}
+	$$=mk_exp(NULL, mk_const(c, SYM_VAL_CHAR), NULL);
 }
 | IDENTIFIER
 {
@@ -204,7 +311,7 @@ expression : expression '+' expression
 | call_expression
 {
 	$$=$1;
-}               
+}
 | error
 {
 	error("Bad expression syntax");
@@ -248,7 +355,7 @@ return_statement : RETURN expression
 	TAC *t=mk_tac(TAC_RETURN, $2->ret, NULL, NULL);
 	t->prev=$2->tac;
 	$$=t;
-}               
+}
 ;
 
 if_statement : IF '(' expression ')' block
@@ -264,7 +371,7 @@ if_statement : IF '(' expression ')' block
 while_statement : WHILE '(' expression ')' block
 {
 	$$=do_while($3, $5);
-}               
+}
 ;
 
 call_statement : IDENTIFIER '(' argument_list ')'
@@ -281,7 +388,7 @@ call_expression : IDENTIFIER '(' argument_list ')'
 
 %%
 
-void yyerror(char* msg) 
+void yyerror(char* msg)
 {
 	fprintf(stderr, "%s: line %d\n", msg, yylineno);
 	exit(0);

@@ -8,6 +8,7 @@ asm
 machine
 mini
 case/
+testcase/
 dot/
 .idea/
 .vscode/

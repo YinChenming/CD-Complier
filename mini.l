@@ -9,6 +9,8 @@
 
 "int"  {  return INT;  }
 
+"char" {  return CHAR; }
+
 "input"  {  return INPUT;  }
 
 "output"  {  return OUTPUT;  }
@@ -21,18 +23,23 @@
 
 "while"  {  return WHILE;  }
 
-[A-Za-z]([A-Za-z]|[0-9])*  {  
-	yylval.string = strdup(yytext); 
+[A-Za-z]([A-Za-z]|[0-9])*  {
+	yylval.string = strdup(yytext);
 	return IDENTIFIER;
 }
 
 [0-9]*	{
-	yylval.string = strdup(yytext); 
+	yylval.string = strdup(yytext);
 	return INTEGER;
 }
 
+\'([^'\\\n]|\\.)+\' {
+	yylval.string = strdup(yytext);
+	return CHARACTER;
+}
+
 \"[^\"]*\"  {
-	yylval.string = strdup(yytext); 
+	yylval.string = strdup(yytext);
 	return TEXT;
 }
 
@@ -58,4 +65,3 @@ int yywrap()
 {
 	return 1;
 }
-
