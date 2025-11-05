@@ -54,6 +54,7 @@ int main(int argc, char *argv[]) {
     tac_init();
     yyparse();
     CFG *cfg = cfg_init(tac_first);
+    run_optimization(cfg);
     cfg_to_dot(cfg, "dot/");
     cfg_free(cfg);
 

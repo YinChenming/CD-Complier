@@ -4,6 +4,7 @@
 #include <set>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 #ifdef __cplusplus
 #define EXTERNC extern "C"
@@ -71,7 +72,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     if (!start_tac) return;
 
     std::set<TAC*> leaders;
-    std::map<std::string, Block*> labeled_blocks;
+    std::map<std::string, BasicBlock*> labeled_blocks;
 
     // 第一条指令是Leader
     leaders.insert(start_tac);
@@ -91,8 +92,8 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     TAC *current_tac = start_tac;
     while (current_tac && current_tac != end_tac->next) {
         if (leaders.count(current_tac)) {
-            blocks_.push_back(std::make_unique<Block>(blocks_.size() + 1, current_tac));
-            Block *current_block = blocks_.back().get();
+            blocks_.push_back(std::make_unique<BasicBlock>(blocks_.size() + 1, current_tac));
+            BasicBlock *current_block = blocks_.back().get();
 
             if (is_label(current_tac->op) && current_tac->a && current_tac->a->name) {
                 labeled_blocks[std::string(current_tac->a->name)] = current_block;
@@ -103,7 +104,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
             while (t->next && t->next != end_tac->next && !leaders.count(t->next)) {
                 t = t->next;
             }
-            current_block->end = t;
+            current_block->end_ = t;
             current_tac = t->next; // 移动到下一个 Leader/TAC
         } else {
             // ???
@@ -121,15 +122,15 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     }
 
     for (size_t i = 0; i < blocks_.size(); ++i) {
-        Block *block = blocks_[i].get();
-        const TAC *block_end = block->end;
+        BasicBlock *block = blocks_[i].get();
+        const TAC *block_end = block->end_;
 
         if (!block_end) continue;
 
         switch (block_end->op) {
             case TAC_GOTO: {
                 if (block_end->a && block_end->a->name) {
-                    Block *target = labeled_blocks.count(block_end->a->name) ? labeled_blocks.at(block_end->a->name) : &end_block_;
+                    BasicBlock *target = labeled_blocks.count(block_end->a->name) ? labeled_blocks.at(block_end->a->name) : &end_block_;
                     CONNECT(block, target, fallthrough);
                 }
                 break;
@@ -137,12 +138,12 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
             case TAC_IFZ: {
                 // 1. 真分支 (IFZ) - 跳转到标签
                 if (block_end->a && block_end->a->name) {
-                    Block *target = labeled_blocks.count(block_end->a->name) ? labeled_blocks.at(block_end->a->name) : &end_block_;
+                    BasicBlock *target = labeled_blocks.count(block_end->a->name) ? labeled_blocks.at(block_end->a->name) : &end_block_;
                     CONNECT(block, target, ifz);
                 }
 
                 // 2. 假分支 (Fallthrough) - 跳转到下一个顺序块
-                Block *fallthrough_target = (i < blocks_.size() - 1) ? blocks_[i+1].get() : &end_block_;
+                BasicBlock *fallthrough_target = (i < blocks_.size() - 1) ? blocks_[i+1].get() : &end_block_;
                 CONNECT(block, fallthrough_target, fallthrough);
                 break;
             }
@@ -153,7 +154,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
                 break;
             }
             default: { // 非跳转指令：fallthrough 到下一个顺序块
-                Block *fallthrough_target = (i < blocks_.size() - 1) ? blocks_[i+1].get() : &end_block_;
+                BasicBlock *fallthrough_target = (i < blocks_.size() - 1) ? blocks_[i+1].get() : &end_block_;
                 CONNECT(block, fallthrough_target, fallthrough);
                 break;
             }
@@ -163,21 +164,21 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
 #undef CONNECT
 #undef CONNECT_
 
-std::string FunctionCFG::block2dot(Block *block) {
-    if (!block->begin) {
+std::string FunctionCFG::block2dot(BasicBlock *block) {
+    if (!block->begin_) {
         return "empty block, no TAC!";
     }
     char * buffer = nullptr;
     size_t size = 0;
     FILE *mem_file = open_memstream(&buffer, &size);
     int i = 1;
-    for (TAC *ptac=block->begin; ptac && ptac!=block->end; ptac=ptac->next) {
+    for (TAC *ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
         fprintf(mem_file, "(%d) ", i++);
         out_tac(mem_file, ptac);
         fprintf(mem_file, "\\l");
     }
     fprintf(mem_file, "(%d) ", i);
-    out_tac(mem_file, block->end);
+    out_tac(mem_file, block->end_);
     fprintf(mem_file, "\\l");
 
     // 不能在close之前读取buffer!!!
@@ -197,7 +198,7 @@ std::string FunctionCFG::to_dot() const {
         dot_str += "B0 [shape=doublecircle, label=\"Function Entry\"];\n";
     // 1. 定义所有节点 (基本块)
     for (const auto& unique_block : blocks_) {
-        Block *block = unique_block.get();
+        BasicBlock *block = unique_block.get();
         // 节点名：B<ID>
         std::string node_name = "B" + std::to_string(block->id());
 
@@ -215,11 +216,11 @@ std::string FunctionCFG::to_dot() const {
     // 2. 定义边 (控制流)
     dot_str += "\n  B0 -> B1 [label=\"Entry\", color=\"green\"];\n"; // Entry 边
     for (const auto& unique_block : blocks_) {
-        Block *block = unique_block.get();
+        BasicBlock *block = unique_block.get();
         std::string source_name = "B" + std::to_string(block->id());
 
         // 辅助函数：生成 DOT 边定义
-        auto generate_edge = [&](Block *target, const std::string& label, const std::string& color) {
+        auto generate_edge = [&](BasicBlock *target, const std::string& label, const std::string& color) {
             if (!target) return; // 目标为空，跳过
 
             std::string dest_name = "B" + std::to_string(target->id());
@@ -241,7 +242,7 @@ std::string FunctionCFG::to_dot() const {
 
         // --- 检查 fallthrough_ ---
         if (block->fallthrough_) {
-            TAC *end_tac = block->end;
+            TAC *end_tac = block->end_;
             std::string edge_label = "Fall-Through";
             std::string color = "black";
 
@@ -262,7 +263,7 @@ std::string FunctionCFG::to_dot() const {
 
         // --- 检查 ifz_ (仅用于 TAC_IFZ) ---
         if (block->ifz_) {
-            if (block->end && block->end->op == TAC_IFZ) {
+            if (block->end_ && block->end_->op == TAC_IFZ) {
                 // IFZ 的目标是真分支 (条件满足时跳转)
                 generate_edge(block->ifz_, "True/Jump", "darkgreen");
             }
@@ -336,16 +337,91 @@ void cfg_to_dot(const CFG *cfg, const char *path) {
     }
 }
 
+bool CFG::opt_constants_folding() const {
+    bool optimize = false;
+    for (auto const &[key, func]: functions_) {
+        optimize |= func->opt_constants_folding();
+    }
+    return optimize;
+}
+bool FunctionCFG::opt_constants_folding() const {
+    bool optimized = false;
+    for (auto const& block: blocks_) {
+        optimized |= block->opt_constants_folding();
+    }
+    return optimized;
+}
+bool BasicBlock::opt_constants_folding() const {
+    bool optimized = false;
+    for (TAC *t = begin_; t != end_->next; t = t->next) {
+        if (t->op >= TAC_MIN_CALC && t->op <= TAC_MAX_CALC) {
+            if (t->b->type == SYM_INT && t->c->type == SYM_INT) {
+                const int val_a = t->b->value, val_b = t->c->value;
+                int result = 0;
+                switch (t->op) {
+                    case TAC_ADD:
+                        result = val_a + val_b; break;
+                    case TAC_SUB:
+                        result = val_a - val_b; break;
+                    case TAC_MUL:
+                        result = val_a * val_b; break;
+                    case TAC_DIV:
+                        if (val_b != 0) {
+                            result = val_a / val_b;
+                        } else {
+                            printf("Error: division by zero!\n");
+                            continue; // 避免除以零
+                        }
+                        break;
+                    case TAC_EQ:
+                        result = val_a == val_b; break;
+                    case TAC_NE:
+                        result = val_a != val_b; break;
+                    case TAC_LT:
+                        result = val_a < val_b; break;
+                    case TAC_LE:
+                        result = val_a <= val_b; break;
+                    case TAC_GT:
+                        result = val_a > val_b; break;
+                    case TAC_GE:
+                        result = val_a >= val_b; break;
+                    case TAC_NEG:
+                        result = -val_a; break;
+                    default:
+                        continue; // 不支持的操作
+                }
+                // 创建新的常量符号
+                SYM *const_sym = mk_const(result);
+
+                // 修改当前TAC为赋值操作
+                t->op = TAC_COPY;
+                t->b = const_sym; // 赋值的常量
+
+                optimized = true;
+            }
+        }
+    }
+    return optimized;
+}
+
 EXTERNC
-void run_optimization(){
-    run_local_optimization();
-    run_global_optimization();
+int run_local_optimization(CFG *cfg){
+    if (!cfg) return 0;
+    int opt_count = 0;
+    if (cfg->opt_constants_folding()) opt_count++;
+    return opt_count;
 }
 EXTERNC
-void run_local_optimization(){
-    ;;;
+int run_global_optimization(CFG *cfg){
+    if (!cfg) return 0;
+    return 1;
 }
+
 EXTERNC
-void run_global_optimization(){
-    ;;;
+int run_optimization(CFG *cfg){
+    if (!cfg) return 0;
+    int opt_count = 0;
+    opt_count += run_local_optimization(cfg);
+    opt_count += run_global_optimization(cfg);
+    return opt_count;
 }

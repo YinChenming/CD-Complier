@@ -22,6 +22,10 @@
 #define TAC_GT 9 /* a=(b>c) */
 #define TAC_GE 10 /* a=(b>=c) */
 #define TAC_NEG 11 /* a=-b */
+
+#define TAC_MIN_CALC TAC_ADD
+#define TAC_MAX_CALC TAC_NEG
+
 #define TAC_COPY 12 /* a=b */
 #define TAC_GOTO 13 /* goto a */
 #define TAC_IFZ 14 /* ifz b goto a */

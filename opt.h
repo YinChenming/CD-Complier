@@ -12,9 +12,9 @@ CFG *cfg_init(TAC*);
 void cfg_free(const CFG*);
 void cfg_to_dot(const CFG*, const char *path);
 
-void run_optimization();
-void run_local_optimization();
-void run_global_optimization();
+int run_optimization(CFG*);
+int run_local_optimization(CFG*);
+int run_global_optimization(CFG*);
 
 #ifdef __cplusplus
 }
