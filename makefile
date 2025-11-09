@@ -1,6 +1,6 @@
 OUT_DIR_NAME = out
 OUT_DIR = ./$(OUT_DIR_NAME)
-CFLAGS = -I. -I$(OUT_DIR_NAME) -Wall -Wextra
+CFLAGS = -I. -I$(OUT_DIR_NAME) -Wall -Wextra -Wno-unused-function
 
 CFLAGS += -g3
 TARGETS = mini asm machine
@@ -21,11 +21,11 @@ machine: machine.c opcode.h | $(OUT_DIR)
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUT_DIR):
-	@mkdir $(OUT_DIR) -v -p
+	@mkdir $(OUT_DIR)
 
 clean:
 	@find ./ | grep -E '^\./[^.].*\.[osx]$$' | xargs rm -f
-	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o core $(TARGETS)
+	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o core $(TARGETS) *.dSYM
 
 test: $(t).m
 	./mini $(t).m; \

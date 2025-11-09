@@ -2,10 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "mini.y.h"
 #include "obj.h"
 #include "tac.h"
+#include "mini.y.h"
 
+int yyparse();
 FILE *file_x, *file_s;
 
 void error(const char *format, ...) {

@@ -20,6 +20,11 @@
 #define MODIFIED 1
 #define UNMODIFIED 0
 
+#define BOOL_SIZE 1
+#define CHAR_SIZE 1
+#define INT_SIZE 4
+#define POINTER_SIZE INT_SIZE
+
 struct rdesc /* register descriptor */
 {
     struct sym *var;

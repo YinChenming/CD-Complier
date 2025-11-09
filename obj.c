@@ -13,30 +13,30 @@ int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
 
 #ifdef NEW_ASM
-#define STO(VAL_TYPE, REG_DESC, ...)                                                                                   \
+#define STO(VALUE, REG_DESC, ...)                                                                                   \
     do {                                                                                                               \
-        if ((VAL_TYPE) == SYM_VAL_CHAR) {                                                                              \
+        if ((VALUE)->value_size == 1) {                                                                                         \
             out_str(file_s, "\tSTC " REG_DESC "\n", __VA_ARGS__);                                                      \
-        } else if ((VAL_TYPE) == SYM_VAL_INT) {                                                                        \
+        } else if ((VALUE)->value_size == 4) {                                                                                  \
             out_str(file_s, "\tSTO " REG_DESC "\n", __VA_ARGS__);                                                      \
         } else {                                                                                                       \
             error("unexpect value type");                                                                              \
         }                                                                                                              \
     } while (0)
 
-#define LOD(VAL_TYPE, REG_DESC, ...)                                                                                   \
+#define LOD(VALUE, REG_DESC, ...)                                                                                   \
     do {                                                                                                               \
-        if ((VAL_TYPE) == SYM_VAL_CHAR) {                                                                              \
+        if ((VALUE)->value_size == 1) {                                                                                         \
             out_str(file_s, "\tLDC " REG_DESC "\n", __VA_ARGS__);                                                      \
-        } else if ((VAL_TYPE) == SYM_VAL_INT) {                                                                        \
+        } else if ((VALUE)->value_size == 4) {                                                                                  \
             out_str(file_s, "\tLOD " REG_DESC "\n", __VA_ARGS__);                                                      \
         } else {                                                                                                       \
             error("unexpect value type");                                                                              \
         }                                                                                                              \
     } while (0)
 #else
-#define STO(VAL_TYPE, REG_DESC, ...) out_str(file_s, "\tSTO " REG_DESC "\n", __VA_ARGS__)
-#define LOD(VAL_TYPE, REG_DESC, ...) out_str(file_s, "\tLOD " REG_DESC "\n", __VA_ARGS__)
+#define STO(VALUE, REG_DESC, ...) out_str(file_s, "\tSTO " REG_DESC "\n", __VA_ARGS__)
+#define LOD(VALUE, REG_DESC, ...) out_str(file_s, "\tLOD " REG_DESC "\n", __VA_ARGS__)
 #endif
 
 static void rdesc_clear(const int r) {
@@ -59,27 +59,31 @@ static void asm_write_back(const int r) {
     if ((rdesc[r].var != NULL) && rdesc[r].mod) {
         if (rdesc[r].var->scope == 1) /* local var */
         {
-            STO(rdesc[r].var->value_type, "(R%u+%u),R%u", R_BP, rdesc[r].var->offset, r);
+            STO(rdesc[r].var, "(R%u+%u),R%u", R_BP, rdesc[r].var->offset, r);
             // out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
         } else /* global var */
         {
             out_str(file_s, "\tLOD R%u,STATIC\n", R_TP);
-            STO(rdesc[r].var->value_type, "(R%u+%u),R%u", R_TP, rdesc[r].var->offset, r);
+            STO(rdesc[r].var, "(R%u+%u),R%u", R_TP, rdesc[r].var->offset, r);
             //  out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
         }
         rdesc[r].mod = UNMODIFIED;
     }
 }
 
-static void asm_load(const int r, const SYM *s) {
+static void asm_load(const int r, SYM *s) {
     /* already in a reg */
     for (int i = R_GEN; i < R_NUM; i++) {
         if (rdesc[i].var == s) {
             /* load from the reg */
-            out_str(file_s, "\tLOD R%u,R%u\n", r, i);
+            if (r!=i)
+            {
+                out_str(file_s, "\tLOD R%u,R%u\n", r, i);
+            }
 
             /* update rdesc */
-            // rdesc_fill(r, s, rdesc[i].mod);
+            rdesc_fill(r, s, rdesc[i].mod);
+            rdesc_clear(r);
             return;
         }
     }
@@ -94,16 +98,16 @@ static void asm_load(const int r, const SYM *s) {
             if (s->scope == 1) /* local var */
             {
                 if ((s->offset) >= 0) {
-                    LOD(s->value_type, "R%u,(R%u+%d)", r, R_BP, s->offset);
+                    LOD(s, "R%u,(R%u+%d)", r, R_BP, s->offset);
                     // out_str(file_s, "\tLOD R%u,(R%u+%d)\n", r, R_BP, s->offset);
                 } else {
-                    LOD(s->value_type, "R%u,(R%u-%d)", r, R_BP, -(s->offset));
+                    LOD(s, "R%u,(R%u-%d)", r, R_BP, -(s->offset));
                     // out_str(file_s, "\tLOD R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
                 }
             } else /* global var */
             {
                 out_str(file_s, "\tLOD R%u,STATIC\n", R_TP);
-                LOD(s->value_type, "R%u,(R%u+%d)", r, R_TP, s->offset);
+                LOD(s, "R%u,(R%u+%d)", r, R_TP, s->offset);
                 // out_str(file_s, "\tLOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
             }
             break;
@@ -116,7 +120,7 @@ static void asm_load(const int r, const SYM *s) {
             break;
     }
 
-    // rdesc_fill(r, s, UNMODIFIED);
+    rdesc_fill(r, s, UNMODIFIED);
 }
 
 static int reg_alloc(SYM *s) {
@@ -140,7 +144,7 @@ static int reg_alloc(SYM *s) {
         }
     }
 
-    /* unmodifed register */
+    /* unmodified register */
     for (r = R_GEN; r < R_NUM; r++) {
         if (!rdesc[r].mod) {
             asm_load(r, s);
@@ -288,7 +292,7 @@ static void asm_call(SYM *a, SYM *b) {
     oon = 0;
 }
 
-static void asm_return(const SYM *a) {
+static void asm_return(SYM *a) {
     for (int r = R_GEN; r < R_NUM; r++)
         asm_write_back(r);
     for (int r = R_GEN; r < R_NUM; r++)
@@ -360,8 +364,83 @@ static void asm_static(void) {
     out_str(file_s, "STACK:\n");
 }
 
+static void asm_addr(SYM *a, const SYM *b) {
+    if (!a || !b) return;
+    const int reg_a = reg_alloc(a);
+    if (b->scope == 1)
+    {
+        out_str(file_s, "\tLOD R%u, R%u%+d", reg_a, R_BP, b->offset);
+    } else
+    {
+        out_str(file_s, "\tLOD R%u, STATIC", reg_a, R_TP);
+        if (b->offset > 0)
+            out_str(file_s, "\tADD R%u, %d", reg_a, b->offset);
+        else if (b->offset < 0)
+            out_str(file_s, "\tSUB R%u, %d", reg_a, -b->offset);
+    }
+    rdesc_fill(reg_a, a, MODIFIED);
+}
+
+static void asm_deref(SYM *a, SYM *b)
+{
+    if (!a || !b) return;
+    // 为了避免寄存器与内存不一致,在解引用时需要把全部寄存器写回内存后再读取
+    // 如果要避免全部写回,就需要**指针分析**的技术了
+    int reg_b = 0;
+    for (int r = R_GEN; r < R_NUM; r++)
+    {
+        if (rdesc[r].var == b)
+        {
+            reg_b = r;
+            continue;
+        }
+        if (rdesc[r].var == NULL)
+            continue;
+        asm_write_back(r);
+        rdesc_clear(r);
+    }
+    if (!reg_b)
+    {
+        reg_b = reg_alloc(b);
+    }
+    LOD(a, "R%u, (R%u)", reg_b, reg_b);
+    rdesc_fill(reg_b, a, MODIFIED);
+}
+
+static void asm_store(SYM *a, SYM *b)
+{
+    int reg_b = 0;
+    // 此处依然要把所有寄存器写回,因为我们不能保证解引用后获得的指针已从寄存器中写回内存
+    for (int r= R_GEN; r < R_NUM; r++)
+    {
+        if (rdesc[r].var == b)
+        {
+            reg_b = r;
+            continue;
+        }
+        if (rdesc[r].var == NULL)
+            continue;
+        asm_write_back(r);
+        rdesc_clear(r);
+    }
+    if (!reg_b)
+    {
+        reg_b = reg_alloc(b);
+    }
+    int reg_a = reg_alloc(a);
+    while (reg_a == reg_b)
+    {
+        reg_a = reg_alloc(a);
+        reg_b = reg_alloc(b);
+    }
+    // 然后我们计算*a=b
+    STO(a, "(R%u), R%u", reg_a, reg_b);
+    rdesc_fill(reg_a, a, UNMODIFIED);
+}
+
 static void asm_code(const TAC *c) {
     int r;
+    SYM *cb = c->b, *cc = c->c;
 
     switch (c->op) {
         case TAC_UNDEF:
@@ -369,10 +448,30 @@ static void asm_code(const TAC *c) {
             return;
 
         case TAC_ADD:
+            if (c->b->type == SYM_CONST)
+            {
+                const SYM *tmp_ptr = cb;
+                cb = cc;
+                cc = (SYM*)tmp_ptr;
+            }
+            if (cc->type == SYM_CONST)
+            {
+                const int reg_b = reg_alloc(cb);
+                LOD(c->a, "R%u, R%u%+d", reg_b, reg_b, cc->value);
+                rdesc_fill(reg_b, c->a, MODIFIED);
+                break;
+            }
             asm_bin("ADD", c->a, c->b, c->c);
             return;
 
         case TAC_SUB:
+            if (c->c->type == SYM_CONST)
+            {
+                const int reg_b = reg_alloc(c->b);
+                LOD(c->a, "R%u, R%u%+d", reg_b, reg_b, -c->c->value);
+                rdesc_fill(reg_b, c->a, MODIFIED);
+                break;
+            }
             asm_bin("SUB", c->a, c->b, c->c);
             return;
 
@@ -385,9 +484,20 @@ static void asm_code(const TAC *c) {
             return;
 
         case TAC_NEG:
-            // TODO: 此处假定取反时的均为INT
-            asm_bin("SUB", c->a, mk_const(0, SYM_VAL_INT), c->b);
+            asm_bin("SUB", c->a, mk_const(0, c->b->value_type), c->b);
             return;
+
+        case TAC_ADDR:
+            asm_addr(c->a, c->b);
+            return;
+
+        case TAC_DEREF:
+            asm_deref(c->a, c->b);
+            break;
+
+        case TAC_STORE:
+            asm_store(c->a, c->b);
+            break;
 
         case TAC_EQ:
         case TAC_NE:

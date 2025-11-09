@@ -12,3 +12,9 @@ testcase/
 dot/
 .idea/
 .vscode/
+.clang-format
+
+# for Mac OS
+.DS_Store
+*.dSYM
+*.dSYM/

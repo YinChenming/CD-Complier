@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "obj.h"
+
 /* global var */
 int scope, next_tmp, next_label;
 SYM *sym_tab_global, *sym_tab_local;
@@ -54,7 +56,7 @@ static SYM *mk_sym(void) {
     return t;
 }
 
-static SYM *mk_var(const char *name, const int type) {
+SYM *mk_var(const char *name, const int type) {
     SYM *sym = NULL;
 
     if (scope)
@@ -73,7 +75,7 @@ static SYM *mk_var(const char *name, const int type) {
     sym->type = SYM_VAR;
     sym->name = strdup(name);
     sym->value_type = type;
-    sym->value_size = get_size_of_type(type);
+    sym->value_size = get_size_of_type(type); // the size of a pointer is 4
     sym->offset = -1; /* Unset address */
 
     if (scope)
@@ -99,7 +101,31 @@ TAC *join_tac(TAC *c1, TAC *c2) {
     return c2;
 }
 
-TAC *declare_var(const char *name, const int type) { return mk_tac(TAC_VAR, mk_var(name, type), NULL, NULL); }
+void free_sym(SYM *sym, const SYM **symtab)
+{
+    if (!sym) return;
+    if (symtab && *symtab)
+    {
+        if (strcmp((*symtab)->name, sym->name) == 0)
+            *symtab = (*symtab)->next;
+        else
+        {
+            SYM *t = (*symtab)->next;
+            while (t->next)
+            {
+                if (strcmp(t->next->name, sym->name) == 0)
+                    break;
+                t = t->next;
+            }
+            if (t->next)
+                t->next = t->next->next;
+        }
+    }
+    free(sym->name);
+    free(sym);
+}
+
+TAC *declare_var(SYM *var) { return mk_tac(TAC_VAR, var, NULL, NULL); }
 
 TAC *mk_tac(const int op, SYM *a, SYM *b, SYM *c) {
     TAC *t = (TAC *) malloc(sizeof(TAC));
@@ -147,7 +173,7 @@ SYM *mk_tmp(const int type) {
     return mk_var(name, type);
 }
 
-TAC *declare_para(const char *name, const int type) { return mk_tac(TAC_FORMAL, mk_var(name, type), NULL, NULL); }
+TAC *declare_para(SYM *var) { return mk_tac(TAC_FORMAL, var, NULL, NULL); }
 
 // TODO: 此函数用于mini.y
 SYM *declare_func(const char *name, const int type) {
@@ -191,6 +217,16 @@ TAC *do_assign(SYM *var, const EXP *exp) {
     return code;
 }
 
+TAC *do_store(SYM *dest, const EXP *exp)
+{
+    if (dest->type != SYM_VAR || !dest->indirection)
+        error("assignment to non-pointer");
+
+    TAC *code = mk_tac(TAC_STORE, dest, exp->ret, NULL);
+    code->prev = exp->tac;
+    return code;
+}
+
 TAC *do_input(SYM *var) {
     if (var->type != SYM_VAR)
         error("input to non-variable");
@@ -200,8 +236,14 @@ TAC *do_input(SYM *var) {
     return code;
 }
 
-TAC *do_output(SYM *var) { return mk_tac(TAC_OUTPUT, var, NULL, NULL); }
+TAC *do_output(EXP* exp)
+{
+    TAC *code = mk_tac(TAC_OUTPUT, exp->ret, NULL, NULL);
+    code->prev = exp->tac;
 
+    free(exp);
+    return code;
+}
 
 static int do_implicit_type_conversion(const int type1, const int type2) {
     if (type1 == type2)
@@ -279,7 +321,32 @@ EXP *do_cmp(const int binop, EXP *exp1, const EXP *exp2) {
 
 EXP *do_un(const int unop, EXP *exp) {
     /* TAC code for temp symbol */
-    TAC *temp = mk_tac(TAC_VAR, mk_tmp(exp->ret->value_type), NULL, NULL);
+    SYM *tmp_sym = mk_tmp(exp->ret->value_type);
+    switch (unop)
+    {
+        case TAC_NEG: tmp_sym->value_size = exp->ret->value_size; break;
+        case TAC_ADDR:
+            tmp_sym->value_size = POINTER_SIZE;
+            tmp_sym->indirection = exp->ret->indirection + 1;
+            break;
+        case TAC_DEREF:
+            if (!exp->ret->value_size)
+            {
+                error("cannot dereference a non-pointer expression!");
+                free_sym(tmp_sym, NULL);
+                return NULL;
+            }
+            tmp_sym->indirection = exp->ret->indirection - 1;
+            if (tmp_sym->indirection)
+            {
+                tmp_sym->value_size = POINTER_SIZE;
+            }
+            // else 本来就会根据value_type自动设置value_size,保持原状即可
+            break;
+        default: break;
+    }
+    TAC *temp = mk_tac(TAC_VAR, tmp_sym, NULL, NULL);
+
     temp->prev = exp->tac;
 
     /* TAC code for result */
@@ -468,6 +535,7 @@ static char *to_str(const SYM *s, char *str) {
     if (s == NULL)
         return "NULL";
 
+
     switch (s->type) {
         case SYM_FUNC:
         case SYM_VAR:
@@ -554,6 +622,18 @@ void out_tac(FILE *f, const TAC *i) {
             fprintf(f, "%s = - %s", to_str(i->a, sa), to_str(i->b, sb));
             break;
 
+        case TAC_ADDR:
+            fprintf(f, "%s = & %s", to_str(i->a, sa), to_str(i->b, sb));
+            break;
+
+        case TAC_DEREF:
+            fprintf(f, "%s = * %s", to_str(i->a, sa), to_str(i->b, sb));
+            break;
+
+        case TAC_STORE:
+            fprintf(f, "*%s = %s", to_str(i->a, sa), to_str(i->b, sb));
+            break;
+
         case TAC_COPY:
             fprintf(f, "%s = %s", to_str(i->a, sa), to_str(i->b, sb));
             break;
@@ -601,7 +681,24 @@ void out_tac(FILE *f, const TAC *i) {
             break;
 
         case TAC_VAR:
-            fprintf(f, "var %s", to_str(i->a, sa));
+            if (i->a)
+            {
+                switch (i->a->value_type)
+                {
+                    case SYM_VAL_BOOL:
+                        fprintf(f, "bool ");break;
+                    case SYM_VAL_CHAR:
+                        fprintf(f, "char ");break;
+                    case SYM_VAL_INT:
+                        fprintf(f, "int ");break;
+                    default:break;
+                }
+                for (int j = 0; j < i->a->indirection; j++)
+                {
+                    fprintf(f, "*");
+                }
+            }
+            fprintf(f, "%s", to_str(i->a, sa));
             break;
 
         case TAC_BEGINFUNC:
@@ -621,10 +718,11 @@ void out_tac(FILE *f, const TAC *i) {
 int get_size_of_type(const int type) {
     switch (type) {
         case SYM_VAL_BOOL:
+            return BOOL_SIZE;
         case SYM_VAL_CHAR:
-            return 1;
+            return CHAR_SIZE;
         case SYM_VAL_INT:
-            return 4;
+            return INT_SIZE;
         default:
             return -1;
     }

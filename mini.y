@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "tac.h"
+#include "obj.h"
 
 int yylex();
 void yyerror(char* msg);
@@ -48,8 +49,10 @@ int hex2char(char* str, int len)
 %right UMINUS
 
 %type <tac> program function_declaration_list function_declaration function parameter_list parameter variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
-%type <exp> argument_list expression_list expression call_expression
-%type <sym> function_head
+%type <tac> store_assignment_statement
+%type <exp> argument_list expression_list
+%type <exp> primary_expression unary_expression multiplicative_expression additive_expression relational_expression equality_expression expression call_expression
+%type <sym> function_head variable
 
 %%
 
@@ -73,7 +76,7 @@ function_declaration : function
 
 declaration : INT variable_list ';'
 {
-	$$=$2;
+	$$=$2;  // 默认的类型就是int,所有值都会自动设置,无需修改
 }
 | CHAR variable_list ';'
 {
@@ -84,18 +87,33 @@ declaration : INT variable_list ';'
 	{
 		sym = p->a;
 		sym->value_type = SYM_VAL_CHAR;
+        if (!sym->indirection){ // 如果不是指针,就修改value_size
+            sym->value_size = get_size_of_type(SYM_VAL_CHAR);
+        }
 		p = p->prev;
 	}
 }
 ;
 
-variable_list : IDENTIFIER
+variable: IDENTIFIER
 {
-	$$=declare_var($1, SYM_VAL_INT);
+    $$=mk_var($1, SYM_VAL_INT);
 }
-| variable_list ',' IDENTIFIER
+| '*' variable
 {
-	$$=join_tac($1, declare_var($3, SYM_VAL_INT));
+    $$=$2;
+    $2->value_size = POINTER_SIZE;
+    $2->indirection += 1;
+}
+;
+
+variable_list : variable
+{
+	$$=declare_var($1);
+}
+| variable_list ',' variable
+{
+	$$=join_tac($1, declare_var($3));
 }
 ;
 
@@ -143,17 +161,21 @@ parameter_list : parameter
 }
 ;
 
-parameter: IDENTIFIER
+parameter: variable
 {
-	$$=declare_para($1, SYM_VAL_INT);
+	$$=declare_para($1);
 }
-| INT IDENTIFIER
+| INT variable
 {
-	$$=declare_para($2, SYM_VAL_INT);
+    $2->value_type = SYM_VAL_INT;
+    $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_INT);
+	$$=declare_para($2);
 }
-| CHAR IDENTIFIER
+| CHAR variable
 {
-	$$=declare_para($2, SYM_VAL_CHAR);
+    $2->value_type = SYM_VAL_CHAR;
+    $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_CHAR);
+	$$=declare_para($2);
 }
 ;
 
@@ -199,124 +221,167 @@ assignment_statement : IDENTIFIER '=' expression
 {
 	$$=do_assign(get_var($1), $3);
 }
+| store_assignment_statement
 ;
 
-expression : expression '+' expression
+store_assignment_statement : '*' IDENTIFIER '=' expression
 {
-	$$=do_bin(TAC_ADD, $1, $3);
+    $$=do_store(get_var($2), $4);
 }
-| expression '-' expression
+| '*' store_assignment_statement
 {
-	$$=do_bin(TAC_SUB, $1, $3);
+    const SYM *underef_sym = $2->a;
+    const EXP *deref_exp = do_un(TAC_DEREF, mk_exp(NULL, underef_sym, NULL));
+    SYM *tmp_sym = deref_exp->ret;
+    TAC *deref_tac = deref_exp->tac;
+    join_tac($2->prev, deref_tac);
+    $2->prev = deref_tac;
+    $2->a = tmp_sym;
+    $$ = $2;
 }
-| expression '*' expression
+;
+
+// 优先级: primary > unary (*, &, -) > multiplicative (*, /) > additive (+, -) > relational (> , <, >=, <=) > equality (==, !=)
+
+primary_expression: '(' expression ')'
 {
-	$$=do_bin(TAC_MUL, $1, $3);
-}
-| expression '/' expression
-{
-	$$=do_bin(TAC_DIV, $1, $3);
-}
-| '-' expression  %prec UMINUS
-{
-	$$=do_un(TAC_NEG, $2);
-}
-| expression EQ expression
-{
-	$$=do_cmp(TAC_EQ, $1, $3);
-}
-| expression NE expression
-{
-	$$=do_cmp(TAC_NE, $1, $3);
-}
-| expression LT expression
-{
-	$$=do_cmp(TAC_LT, $1, $3);
-}
-| expression LE expression
-{
-	$$=do_cmp(TAC_LE, $1, $3);
-}
-| expression GT expression
-{
-	$$=do_cmp(TAC_GT, $1, $3);
-}
-| expression GE expression
-{
-	$$=do_cmp(TAC_GE, $1, $3);
-}
-| '(' expression ')'
-{
-	$$=$2;
+    $$=$2;
 }
 | INTEGER
 {
-	$$=mk_exp(NULL, mk_const(atoi($1), SYM_VAL_INT), NULL);
+    $$=mk_exp(NULL, mk_const(atoi($1), SYM_VAL_INT), NULL);
 }
 | CHARACTER
 {
-	int c = -1;
-	int len = strlen($1);
-	if (*$1 != '\'' || $1[len-1] != '\'' || len < 3)
-	{
-		error("Unknown char '%s'", $1);
-		return;
-	}
-	if (len == 3)
-	{
-		c = $1[1];
-	} else if ($1[1] == '\\')
-	{
-		switch($1[2])
-		{
-			case '\\': c = '\\'; break;
-			case 'n' : c = '\n'; break;
-			case 't' : c = '\t'; break;
-			case 'b' : c = '\b'; break;
-			case 'a' : c = '\a'; break;
-			case 'f' : c = '\f'; break;
-			case 'v' : c = '\v'; break;
-			case '\'': c = '\''; break;
-			case '\"': c = '\"'; break;
-			case '0' : c = '\0'; break;
-			case 'x': case 'X':
-				if (len > 4)
-				{
-					c = 'x'; break;
-				}
-			// fallthrough!!
-			default:
-				c = -1;
-				error("Invalid escape sequence '\\%c'", $1[2]);
-				return;
-		}
-		if (c == 'x')
-		{
-			int result = hex2char($1+3, len-4);
-			if (result == -1)
-				return;
-			c = (char) result;
-		}
-	} else
-	{
-		error("Invalid char %s", $1);
-		return;
-	}
-	$$=mk_exp(NULL, mk_const(c, SYM_VAL_CHAR), NULL);
+    int c = -1;
+    int len = strlen($1);
+    if (*$1 != '\'' || $1[len-1] != '\'' || len < 3)
+    {
+        error("Unknown char '%s'", $1);
+        return 0;
+    }
+    if (len == 3)
+    {
+        c = $1[1];
+    } else if ($1[1] == '\\')
+    {
+        switch($1[2])
+        {
+            case '\\': c = '\\'; break;
+            case 'n' : c = '\n'; break;
+            case 't' : c = '\t'; break;
+            case 'b' : c = '\b'; break;
+            case 'a' : c = '\a'; break;
+            case 'f' : c = '\f'; break;
+            case 'v' : c = '\v'; break;
+            case '\'': c = '\''; break;
+            case '\"': c = '\"'; break;
+            case '0' : c = '\0'; break;
+            case 'x': case 'X':
+                if (len > 4)
+                {
+                    c = 'x'; break;
+                }
+            // fallthrough!!
+            default:
+                c = -1;
+                error("Invalid escape sequence '\\%c'", $1[2]);
+                return 0;
+        }
+        if (c == 'x')
+        {
+            int result = hex2char($1+3, len-4);
+            if (result == -1)
+                return 0;
+            c = (char) result;
+        }
+    } else
+    {
+        error("Invalid char %s", $1);
+        return 0;
+    }
+    $$=mk_exp(NULL, mk_const(c, SYM_VAL_CHAR), NULL);
 }
 | IDENTIFIER
 {
-	$$=mk_exp(NULL, get_var($1), NULL);
+    $$=mk_exp(NULL, get_var($1), NULL);
 }
 | call_expression
-{
-	$$=$1;
-}
 | error
 {
-	error("Bad expression syntax");
-	$$=mk_exp(NULL, NULL, NULL);
+    error("Bad primary expression syntax");
+    $$=mk_exp(NULL, NULL, NULL);
 }
+;
+
+unary_expression: primary_expression
+| '-' unary_expression  %prec UMINUS
+{
+    $$=do_un(TAC_NEG, $2);
+}
+| '*' unary_expression
+{
+    $$=do_un(TAC_DEREF, $2);
+}
+| '&' unary_expression
+{
+    $$=do_un(TAC_ADDR, $2);
+}
+;
+
+multiplicative_expression: unary_expression
+| multiplicative_expression '*' unary_expression
+{
+    $$=do_bin(TAC_MUL, $1, $3);
+}
+| multiplicative_expression '/' unary_expression
+{
+    $$=do_bin(TAC_DIV, $1, $3);
+}
+;
+
+additive_expression: multiplicative_expression
+| additive_expression '+' multiplicative_expression
+{
+    $$=do_bin(TAC_ADD, $1, $3);
+}
+| additive_expression '-' multiplicative_expression
+{
+    $$=do_bin(TAC_SUB, $1, $3);
+}
+;
+
+relational_expression: additive_expression
+| relational_expression LT additive_expression
+{
+    $$=do_cmp(TAC_LT, $1, $3);
+}
+| relational_expression LE additive_expression
+{
+    $$=do_cmp(TAC_LE, $1, $3);
+}
+| relational_expression GT additive_expression
+{
+    $$=do_cmp(TAC_GT, $1, $3);
+}
+| relational_expression GE additive_expression
+{
+    $$=do_cmp(TAC_GE, $1, $3);
+}
+;
+
+equality_expression: relational_expression
+| equality_expression EQ relational_expression
+{
+    $$=do_cmp(TAC_EQ, $1, $3);
+}
+| equality_expression NE relational_expression
+{
+    $$=do_cmp(TAC_NE, $1, $3);
+}
+;
+
+expression: equality_expression
 ;
 
 argument_list           :
@@ -340,13 +405,14 @@ input_statement : INPUT IDENTIFIER
 }
 ;
 
-output_statement : OUTPUT IDENTIFIER
+output_statement : OUTPUT expression
 {
-	$$=do_output(get_var($2));
+	$$=do_output($2);
 }
 | OUTPUT TEXT
 {
-	$$=do_output(mk_text($2));
+    EXP *exp = mk_exp(NULL, mk_text($2), NULL);
+	$$=do_output(exp);
 }
 ;
 

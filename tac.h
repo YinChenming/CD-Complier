@@ -32,19 +32,23 @@
 #define TAC_GT 9 /* a=(b>c) */
 #define TAC_GE 10 /* a=(b>=c) */
 #define TAC_NEG 11 /* a=-b */
-#define TAC_COPY 12 /* a=b */
-#define TAC_GOTO 13 /* goto a */
-#define TAC_IFZ 14 /* ifz b goto a */
-#define TAC_BEGINFUNC 15 /* function begin */
-#define TAC_ENDFUNC 16 /* function end */
-#define TAC_LABEL 17 /* label a */
-#define TAC_VAR 18 /* int a */
-#define TAC_FORMAL 19 /* formal a */
-#define TAC_ACTUAL 20 /* actual a */
-#define TAC_CALL 21 /* a=call b */
-#define TAC_RETURN 22 /* return a */
-#define TAC_INPUT 23 /* input a */
-#define TAC_OUTPUT 24 /* output a */
+#define TAC_ADDR 12 /* a=&b */
+#define TAC_DEREF 13 /* a=*b */
+
+#define TAC_STORE 20 /* *a=b */
+#define TAC_COPY 21 /* a=b */
+#define TAC_GOTO 22 /* goto a */
+#define TAC_IFZ 23 /* ifz b goto a */
+#define TAC_BEGINFUNC 24 /* function begin */
+#define TAC_ENDFUNC 25 /* function end */
+#define TAC_LABEL 26 /* label a */
+#define TAC_VAR 27 /* int a */
+#define TAC_FORMAL 28 /* formal a */
+#define TAC_ACTUAL 29 /* actual a */
+#define TAC_CALL 30 /* a=call b */
+#define TAC_RETURN 31 /* return a */
+#define TAC_INPUT 32 /* input a */
+#define TAC_OUTPUT 33 /* output a */
 
 #include <stdio.h>
 
@@ -64,6 +68,7 @@ typedef struct sym {
     int value;
     int value_type;
     int value_size;
+    int indirection; /* 0: normal global, 1: value_type*, 2: value_type**, ... */
     int label;
     struct tac *address; /* SYM_FUNC */
     struct sym *next;
@@ -108,6 +113,12 @@ void out_sym(FILE *f, const SYM *s);
 
 void out_tac(FILE *f, const TAC *i);
 
+void free_sym(SYM *sym, const SYM **symtab);
+
+void free_tac(TAC *tac);
+
+SYM *mk_var(const char *name, int type);
+
 SYM *mk_label(const char *name);
 
 SYM *mk_tmp(int type);
@@ -126,15 +137,17 @@ SYM *get_var(const char *name);
 
 SYM *declare_func(const char *name, int type);
 
-TAC *declare_var(const char *name, int type);
+TAC *declare_var(SYM *var);
 
-TAC *declare_para(const char *name, int type);
+TAC *declare_para(SYM *var);
 
 TAC *do_func(const SYM *func, TAC *args, TAC *code);
 
 TAC *do_assign(SYM *var, const EXP *exp);
 
-TAC *do_output(SYM *var);
+TAC *do_store(SYM *dest, const EXP *exp);
+
+TAC *do_output(EXP* exp);
 
 TAC *do_input(SYM *var);
 
