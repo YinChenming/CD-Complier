@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 
 #include "obj.h"
 
@@ -326,6 +325,11 @@ EXP *do_bin(const int binop, EXP *exp1, EXP *exp2) {
         return exp1;
     }
     */
+
+    if (!exp1 || !exp2 || !exp1->ret || !exp2->ret) {
+        error("unexpected arguments!");
+        return exp1;
+    }
 
     /* TAC code for temp symbol */
     TAC *temp = mk_tac(
@@ -838,6 +842,9 @@ void out_tac(FILE *f, const TAC *i) {
 }
 
 int get_size_of_type(const int type) {
+#ifndef NEW_ASM
+    return 4;
+#endif
     switch (type) {
         case SYM_VAL_BOOL:
             return BOOL_SIZE;
