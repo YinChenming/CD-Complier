@@ -7,7 +7,7 @@
 
 int yylex();
 void yyerror(char* msg);
-char *yytext;
+extern char *yytext;
 
 int hex2char(char* str, int len)
 {
@@ -41,7 +41,7 @@ int hex2char(char* str, int len)
 	EXP	*exp;
 }
 
-%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN CHAR
+%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN CHAR FOR BREAK CONTINUE
 %token <string> INTEGER IDENTIFIER TEXT CHARACTER
 
 %left EQ NE LT LE GT GE
@@ -53,7 +53,7 @@ int hex2char(char* str, int len)
 %type <tac> store_assignment_statement
 %type <exp> argument_list expression_list
 %type <exp> primary_expression unary_expression multiplicative_expression additive_expression relational_expression equality_expression expression call_expression
-%type <exp> array_expression
+%type <exp> array_expression for_exp_opt
 %type <sym> function_head variable array_variable
 
 %%
@@ -221,6 +221,14 @@ statement : assignment_statement ';'
 | if_statement
 | while_statement
 | block
+| BREAK ';'
+{
+    $$=mk_break();
+}
+| CONTINUE ';'
+{
+    $$=mk_continue();
+}
 | error
 {
 	error("Bad statement syntax");
@@ -258,6 +266,8 @@ assignment_statement : IDENTIFIER '=' expression
 | store_assignment_statement
 | array_expression '=' expression
 {
+    // array_expression必然返回一个Expression,其中$1->tac为{.op=TAC_DEREF,.a=$1->ret,.b=b,.c=c},构成$1->ret=b[c]
+    // 我们只需要将其重新排列即可得到正确的TAC_STORE: 丢弃$1->ret,令{.op=TAC_STORE, .a=$1->b, .b=expression, .c=c}即可构成b[c]=expression
     $$=$1->tac;
     $$->a = $$->b;
     $$->b = $3->ret;
@@ -488,9 +498,36 @@ if_statement : IF '(' expression ')' block
 }
 ;
 
+for_exp_opt:
+{
+    $$=NULL;
+}
+| expression
+{
+    $$=$1->tac;
+}
+| assignment_statement
+;
+
 while_statement : WHILE '(' expression ')' block
 {
 	$$=do_while($3, $5);
+}
+| FOR '(' for_exp_opt ';' expression ';' for_exp_opt ')' block
+{
+    TAC *for_continue_label = NULL;
+    for (const TAC* t=$9;t;t=t->prev) {
+        if (t->op == TAC_GOTO && t->a && t->a->value_type == SYM_LABEL_CONTINUE) {
+            if (!for_continue_label) {
+                for_continue_label = mk_tac(TAC_LABEL, mk_label(mk_cstr()), NULL, NULL);
+            }
+            t->a->name = strdup(for_continue_label->a->name);
+            t->a->value = t->a->value_type = 0;
+        }
+    }
+    $$=join_tac($9, join_tac(for_continue_label, $7));
+    $$=do_while($5, $$);
+    $$=join_tac($3, $$);
 }
 ;
 

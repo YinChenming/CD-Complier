@@ -21,6 +21,9 @@
 #define SYM_VAL_DEFAULT SYM_VAL_INT
 #define SYM_VAL_SIZE SYM_VAL_INT
 
+#define SYM_LABEL_BREAK (-1)
+#define SYM_LABEL_CONTINUE (-2)
+
 /* type of tac */
 #define TAC_UNDEF 0 /* undefine */
 #define TAC_ADD 1 /* a=b+c */
@@ -143,7 +146,15 @@ TAC *mk_tac(int op, SYM *a, SYM *b, SYM *c);
 
 EXP *mk_exp(EXP *next, SYM *ret, TAC *code);
 
-char *mk_lstr(int i);
+const char *mk_lstr();
+
+const char *mk_bstr();
+
+const char *mk_cstr();
+
+TAC *mk_break(void);
+
+TAC *mk_continue(void);
 
 SYM *get_var(const char *name);
 

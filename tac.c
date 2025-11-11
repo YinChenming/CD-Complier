@@ -17,7 +17,6 @@ void tac_init(void) {
     sym_tab_global = NULL;
     sym_tab_local = NULL;
     next_tmp = 0;
-    next_label = 1;
 }
 
 void tac_complete(void) {
@@ -55,6 +54,7 @@ static SYM *mk_sym(void) {
     SYM *t = (SYM *) malloc(sizeof(SYM));
     t->indirection = 0;
     t->dim_size = t->etc = t->name = NULL;
+    t->value = t->value_size = t->value_type = 0;
     return t;
 }
 
@@ -86,6 +86,22 @@ SYM *mk_var(const char *name, const int type) {
         insert_sym(&sym_tab_global, sym);
 
     return sym;
+}
+
+TAC *mk_break(void) {
+    SYM *t = mk_sym();
+    t->type = SYM_LABEL;
+    t->name = NULL;
+    t->value_type = SYM_LABEL_BREAK;
+    return mk_tac(TAC_GOTO, t, NULL, NULL);
+}
+
+TAC *mk_continue(void) {
+    SYM *t = mk_sym();
+    t->type = SYM_LABEL;
+    t->name = NULL;
+    t->value_type = SYM_LABEL_CONTINUE;
+    return mk_tac(TAC_GOTO, t, NULL, NULL);
 }
 
 TAC *join_tac(TAC *c1, TAC *c2) {
@@ -518,14 +534,28 @@ EXP *do_call_ret(const char *name, EXP *arglist) {
     return mk_exp(NULL, ret, code);
 }
 
-char *mk_lstr(int i) {
-    char lstr[10] = "L";
-    sprintf(lstr, "L%d", i);
-    return (strdup(lstr));
+const char *mk_lstr() {
+    static char lstr[10];
+    snprintf(lstr, 10, "Label%d", next_label++);
+    return strdup(lstr);
+}
+
+const char *mk_bstr() {
+    static unsigned char i;
+    static char bstr[10];
+    snprintf(bstr, 10, "Break%d", i++);
+    return strdup(bstr);
+}
+
+const char *mk_cstr() {
+    static unsigned char i;
+    static char cstr[10];
+    snprintf(cstr, 10, "Cont%d", i++);
+    return strdup(cstr);
 }
 
 TAC *do_if(const EXP *exp, TAC *stmt) {
-    TAC *label = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+    TAC *label = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
     TAC *code = mk_tac(TAC_IFZ, label->a, exp->ret, NULL);
 
     code->prev = exp->tac;
@@ -536,8 +566,8 @@ TAC *do_if(const EXP *exp, TAC *stmt) {
 }
 
 TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2) {
-    TAC *label1 = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-    TAC *label2 = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+    TAC *label1 = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
+    TAC *label2 = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
     TAC *code1 = mk_tac(TAC_IFZ, label1->a, exp->ret, NULL);
     TAC *code2 = mk_tac(TAC_GOTO, label2->a, NULL, NULL);
 
@@ -552,12 +582,28 @@ TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2) {
 }
 
 TAC *do_while(const EXP *exp, TAC *stmt) {
-    TAC *label = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+    TAC *label = mk_tac(TAC_LABEL, mk_label(mk_cstr()), NULL, NULL);
     TAC *code = mk_tac(TAC_GOTO, label->a, NULL, NULL);
+    TAC *break_label = NULL;
+
+    for (const TAC *t=stmt; t; t=t->prev) {
+        if (t->op == TAC_GOTO && t->a && t->a->type == SYM_LABEL && t->a->value_type) {
+            if (t->a->value_type == SYM_LABEL_BREAK) {
+                if (!break_label) {
+                    break_label = mk_tac(TAC_LABEL, mk_label(mk_bstr()), NULL, NULL);
+                }
+                t->a->name = strdup(break_label->a->name);
+                t->a->value = t->a->value_type = 0;
+            } else if (t->a->value_type == SYM_LABEL_CONTINUE) {
+                t->a->name = strdup(label->a->name);
+                t->a->value = t->a->value_type = 0;
+            }
+        }
+    }
 
     code->prev = stmt; /* Bolt on the goto */
 
-    return join_tac(label, do_if(exp, code));
+    return join_tac(join_tac(label, do_if(exp, code)), break_label);
 }
 
 SYM *get_var(const char *name) {
