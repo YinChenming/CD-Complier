@@ -18,6 +18,8 @@
 #define SYM_VAL_INT 5
 /* We define that the value of float type MUST GREATER THAN integer type!!! */
 #define SYM_VAL_MAX_INTEGER SYM_VAL_INT
+#define SYM_VAL_DEFAULT SYM_VAL_INT
+#define SYM_VAL_SIZE SYM_VAL_INT
 
 /* type of tac */
 #define TAC_UNDEF 0 /* undefine */
@@ -52,6 +54,13 @@
 
 #include <stdio.h>
 
+struct array_dim_size
+{
+    int size;
+    int level;
+    struct array_dim_size *next;
+};
+
 typedef struct sym {
     /*
         type:SYM_VAR name:abc value:98 offset:-1
@@ -69,6 +78,7 @@ typedef struct sym {
     int value_type;
     int value_size;
     int indirection; /* 0: normal global, 1: value_type*, 2: value_type**, ... */
+    struct array_dim_size *dim_size; /* default NULL */
     int label;
     struct tac *address; /* SYM_FUNC */
     struct sym *next;
@@ -127,6 +137,8 @@ SYM *mk_const(int n, int type);
 
 SYM *mk_text(const char *text);
 
+SYM *mk_dim(SYM *sym, int size);
+
 TAC *mk_tac(int op, SYM *a, SYM *b, SYM *c);
 
 EXP *mk_exp(EXP *next, SYM *ret, TAC *code);
@@ -145,7 +157,7 @@ TAC *do_func(const SYM *func, TAC *args, TAC *code);
 
 TAC *do_assign(SYM *var, const EXP *exp);
 
-TAC *do_store(SYM *dest, const EXP *exp);
+TAC *do_store(SYM *dest, const EXP *exp, const EXP *offset);
 
 TAC *do_output(EXP* exp);
 
@@ -159,7 +171,9 @@ TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2);
 
 TAC *do_while(const EXP *exp, TAC *stmt);
 
-EXP *do_bin(int binop, EXP *exp1, const EXP *exp2);
+EXP *do_bin(int binop, EXP *exp1, EXP *exp2);
+
+EXP *do_deref(EXP *exp1, EXP *exp2);
 
 EXP *do_cmp(int binop, EXP *exp1, const EXP *exp2);
 
@@ -168,6 +182,8 @@ EXP *do_un(int unop, EXP *exp);
 EXP *do_call_ret(const char *name, EXP *arglist);
 
 int get_size_of_type(int type);
+
+#define get_size_of_type_or_pointer(TYPE, IS_POINTER) (!(IS_POINTER) ? get_size_of_type(TYPE) : POINTER_SIZE)
 
 void error(const char *format, ...);
 

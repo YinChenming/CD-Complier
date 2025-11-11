@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "obj.h"
 
@@ -53,6 +54,8 @@ void insert_sym(SYM **symtab, SYM *sym) {
 
 static SYM *mk_sym(void) {
     SYM *t = (SYM *) malloc(sizeof(SYM));
+    t->indirection = 0;
+    t->dim_size = t->etc = t->name = NULL;
     return t;
 }
 
@@ -125,6 +128,40 @@ void free_sym(SYM *sym, const SYM **symtab)
     free(sym);
 }
 
+SYM *mk_dim(SYM *sym, const int size)
+{
+    if (sym->dim_size == NULL)
+    {
+        sym->value_size = get_size_of_type(sym->value_type) * size;
+        sym->dim_size = (struct array_dim_size *) malloc(sizeof(struct array_dim_size));
+        sym->dim_size->next = NULL;
+        sym->dim_size->size = size;
+        sym->dim_size->level = 0;
+        sym->indirection += 1;
+        return sym;
+    }
+
+    struct array_dim_size *dim = sym->dim_size;
+    while (dim->next != NULL)
+    {
+        dim->level++;
+
+        if (dim->size && !(dim->size - dim->next->size))
+            error("cannot declare such an array!");
+        dim = dim->next;
+    }
+    dim->level++;
+    if (size)
+        sym->value_size *= size;
+    dim->next = (struct array_dim_size *) malloc(sizeof(struct array_dim_size));
+    dim = dim->next;
+    dim->level = 0;
+    dim->size = size;
+    dim->next = NULL;
+    sym->indirection += 1;
+    return sym;
+}
+
 TAC *declare_var(SYM *var) { return mk_tac(TAC_VAR, var, NULL, NULL); }
 
 TAC *mk_tac(const int op, SYM *a, SYM *b, SYM *c) {
@@ -169,7 +206,7 @@ TAC *do_func(const SYM *func, TAC *args, TAC *code) {
 SYM *mk_tmp(const int type) {
     // SYM *sym;
     char name[tmp_name_len];
-    sprintf(name, "t%d", next_tmp++); /* Set up text */
+    sprintf(name, "$%d", next_tmp++); /* Set up text */
     return mk_var(name, type);
 }
 
@@ -217,14 +254,16 @@ TAC *do_assign(SYM *var, const EXP *exp) {
     return code;
 }
 
-TAC *do_store(SYM *dest, const EXP *exp)
+TAC *do_store(SYM *dest, const EXP *exp, const EXP *offset)
 {
     if (dest->type != SYM_VAR || !dest->indirection)
         error("assignment to non-pointer");
 
-    TAC *code = mk_tac(TAC_STORE, dest, exp->ret, NULL);
-    code->prev = exp->tac;
-    return code;
+    if (offset == NULL) {
+        return join_tac(exp->tac, mk_tac(TAC_STORE, dest, exp->ret, NULL));
+    } else {
+        return join_tac(join_tac(exp->tac, offset->tac), mk_tac(TAC_STORE, dest, exp->ret, offset->ret));
+    }
 }
 
 TAC *do_input(SYM *var) {
@@ -257,7 +296,7 @@ static int do_implicit_type_conversion(const int type1, const int type2) {
     }
 }
 
-EXP *do_bin(const int binop, EXP *exp1, const EXP *exp2) {
+EXP *do_bin(const int binop, EXP *exp1, EXP *exp2) {
     /*
     if((exp1->ret->type==SYM_INT) && (exp2->ret->type==SYM_INT))
     {
@@ -289,8 +328,12 @@ EXP *do_bin(const int binop, EXP *exp1, const EXP *exp2) {
     */
 
     /* TAC code for temp symbol */
-    TAC *temp = mk_tac(TAC_VAR, mk_tmp(do_implicit_type_conversion(exp1->ret->value_type, exp2->ret->value_type)), NULL,
-                       NULL);
+    TAC *temp = mk_tac(
+        TAC_VAR,
+        mk_tmp(do_implicit_type_conversion(exp1->ret->value_type, exp2->ret->value_type)),
+        NULL,
+        NULL);
+
     temp->prev = join_tac(exp1->tac, exp2->tac);
 
     /* TAC code for result */
@@ -300,6 +343,59 @@ EXP *do_bin(const int binop, EXP *exp1, const EXP *exp2) {
     exp1->ret = temp->a;
     exp1->tac = ret;
 
+    return exp1;
+}
+
+EXP *do_deref(EXP *exp1, EXP *exp2) {
+    if (!exp2) {
+        return do_un(TAC_DEREF, exp1);
+    }
+    // 对a[c][b]的多维数组取值做特殊处理,exp1: a[c], exp2: [b]
+    // 满足exp1返回一个数组,且该数组由a[b]得到
+    if (exp1->ret->dim_size != NULL && exp1->tac && exp1->tac->op == TAC_DEREF && exp1->tac->c != NULL) {
+        // 常量计算
+        // 除到最后value_size会自动回到定义该变量时的根据value_type设置的value_size
+        exp1->ret->value_size /= exp1->ret->dim_size->size;
+        exp1->ret->dim_size = exp1->ret->dim_size->next;
+        exp1->ret->indirection -= 1;
+        if (exp1->tac->c->type == SYM_CONST && exp2->ret->type == SYM_CONST) {
+            // a[1][2] -> a[1+2]
+            exp1->tac->c = mk_const(exp1->tac->c->value + exp2->ret->value * exp1->ret->value_size, SYM_VAL_SIZE);
+        } else {
+            EXP *mul_exp = do_bin(TAC_MUL, exp2, mk_exp(NULL, mk_const(exp1->ret->value_size, SYM_VAL_SIZE), NULL));
+            EXP *add_exp = do_bin(TAC_ADD, mk_exp(NULL, exp1->tac->c, NULL), mul_exp);
+            exp1->tac->c = add_exp->ret;
+            exp1->tac->prev = join_tac(exp1->tac->prev, add_exp->tac);
+        }
+        return exp1;
+    }
+
+    // temp = *(a+b) = a[b]
+    TAC *temp = mk_tac(TAC_VAR, mk_tmp(exp1->ret->value_type), NULL, NULL);
+    temp->a->indirection = exp1->ret->indirection - 1;
+    if (exp1->ret->dim_size != NULL) {
+        temp->a->dim_size = exp1->ret->dim_size->next;
+        if (temp->a->dim_size == NULL) {
+            temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, temp->a->indirection);
+        } else
+        temp->a->value_size = exp1->ret->value_size / exp1->ret->dim_size->size;
+    } else {
+        temp->a->dim_size = NULL;
+        temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, temp->a->indirection>0);
+    }
+    if (exp2->ret->type == SYM_CONST) {
+        // 生成一个新的常量,不能修改原常量
+        exp2->ret = mk_const(exp2->ret->value * (temp->a->value_size), SYM_VAL_SIZE);
+    } else {
+        TAC *tmp_const = mk_tac(TAC_VAR, mk_tmp(SYM_VAL_SIZE), NULL, NULL);
+        TAC *calc_dim_tac = join_tac(tmp_const, mk_tac(TAC_MUL, tmp_const->a, exp2->ret, mk_const(temp->a->value_size, SYM_VAL_SIZE)));
+        exp2->tac = join_tac(exp2->tac, calc_dim_tac);
+        exp2->ret = exp2->tac->a;
+    }
+    temp->prev = join_tac(exp2->tac, exp1->tac);
+    temp = join_tac(temp, mk_tac(TAC_DEREF, temp->a, exp1->ret, exp2->ret));
+    exp1->ret = temp->a;
+    exp1->tac = temp;
     return exp1;
 }
 
@@ -333,8 +429,6 @@ EXP *do_un(const int unop, EXP *exp) {
             if (!exp->ret->value_size)
             {
                 error("cannot dereference a non-pointer expression!");
-                free_sym(tmp_sym, NULL);
-                return NULL;
             }
             tmp_sym->indirection = exp->ret->indirection - 1;
             if (tmp_sym->indirection)
@@ -342,6 +436,13 @@ EXP *do_un(const int unop, EXP *exp) {
                 tmp_sym->value_size = POINTER_SIZE;
             }
             // else 本来就会根据value_type自动设置value_size,保持原状即可
+            // 对数组做处理
+            if (exp->ret->dim_size != NULL) {
+                tmp_sym->dim_size = exp->ret->dim_size->next;
+                tmp_sym->value_size = exp->ret->value_size / exp->ret->dim_size->size;
+            } else {
+                tmp_sym->dim_size = NULL;
+            }
             break;
         default: break;
     }
@@ -627,7 +728,8 @@ void out_tac(FILE *f, const TAC *i) {
             break;
 
         case TAC_DEREF:
-            fprintf(f, "%s = * %s", to_str(i->a, sa), to_str(i->b, sb));
+            if (!i->c) fprintf(f, "%s = * %s", to_str(i->a, sa), to_str(i->b, sb));
+            else fprintf(f, "%s = %s[%s]", to_str(i->a, sa), to_str(i->b, sb), to_str(i->c, sc));
             break;
 
         case TAC_STORE:
@@ -693,12 +795,29 @@ void out_tac(FILE *f, const TAC *i) {
                         fprintf(f, "int ");break;
                     default:break;
                 }
-                for (int j = 0; j < i->a->indirection; j++)
+                if (i->a->dim_size == NULL || i->a->indirection-i->a->dim_size->level>1)
                 {
-                    fprintf(f, "*");
+                    const int indirection = i->a->dim_size ? i->a->indirection-i->a->dim_size->level - 1 : i->a->indirection;
+                    for (int j = 0; j < indirection; j++)
+                    {
+                        fprintf(f, "*");
+                    }
                 }
             }
             fprintf(f, "%s", to_str(i->a, sa));
+            if (i->a && i->a->dim_size)
+            {
+                const struct array_dim_size *dim = i->a->dim_size;
+                while (dim != NULL)
+                {
+                    if (dim->size > 0) fprintf(f, "[%d]", dim->size);
+                    else fprintf(f, "[]");
+                    dim = dim->next;
+                }
+            }
+            if (i->a) {
+                fprintf(f, "(size=%d)", i->a->value_size);
+            }
             break;
 
         case TAC_BEGINFUNC:

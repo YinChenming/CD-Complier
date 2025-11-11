@@ -7,6 +7,7 @@
 
 int yylex();
 void yyerror(char* msg);
+char *yytext;
 
 int hex2char(char* str, int len)
 {
@@ -52,7 +53,8 @@ int hex2char(char* str, int len)
 %type <tac> store_assignment_statement
 %type <exp> argument_list expression_list
 %type <exp> primary_expression unary_expression multiplicative_expression additive_expression relational_expression equality_expression expression call_expression
-%type <sym> function_head variable
+%type <exp> array_expression
+%type <sym> function_head variable array_variable
 
 %%
 
@@ -85,11 +87,17 @@ declaration : INT variable_list ';'
 	$$=$2;
 	while (p && p->op == TAC_VAR)
 	{
-		sym = p->a;
+        sym = p->a;
 		sym->value_type = SYM_VAL_CHAR;
-        if (!sym->indirection){ // 如果不是指针,就修改value_size
-            sym->value_size = get_size_of_type(SYM_VAL_CHAR);
+        int new_size = get_size_of_type(SYM_VAL_CHAR);
+        if (sym->dim_size) {
+            if (sym->indirection - sym->dim_size->level > 1) {
+                new_size = POINTER_SIZE;
+            }
+        } else if (sym->indirection > 0) {
+            new_size = POINTER_SIZE;
         }
+        sym->value_size = sym->value_size / get_size_of_type(SYM_VAL_DEFAULT) * new_size;
 		p = p->prev;
 	}
 }
@@ -97,13 +105,36 @@ declaration : INT variable_list ';'
 
 variable: IDENTIFIER
 {
-    $$=mk_var($1, SYM_VAL_INT);
+    $$=mk_var($1, SYM_VAL_DEFAULT);
 }
 | '*' variable
 {
     $$=$2;
-    $2->value_size = POINTER_SIZE;
+    if (!$2->dim_size) {
+        $2->value_size = POINTER_SIZE;
+    }
     $2->indirection += 1;
+}
+| array_variable
+;
+
+array_variable: IDENTIFIER
+{
+    $$=mk_var($1, SYM_VAL_DEFAULT);
+}
+| array_variable '[' ']'
+{
+    // 我们不支持0数组
+    $$=mk_dim($1, 0);
+}
+| array_variable '[' INTEGER ']'
+{
+    int dim_size = atoi($3);
+    if (dim_size <= 0) {
+        error("invalid dim size for array!");
+    } else {
+        $$=mk_dim($1, dim_size);
+    }
 }
 ;
 
@@ -163,6 +194,9 @@ parameter_list : parameter
 
 parameter: variable
 {
+    if ($1->dim_size != NULL && $1->dim_size->size>0){
+        error("cannot declare an array with dim size!");
+    } else
 	$$=declare_para($1);
 }
 | INT variable
@@ -226,7 +260,7 @@ assignment_statement : IDENTIFIER '=' expression
 
 store_assignment_statement : '*' IDENTIFIER '=' expression
 {
-    $$=do_store(get_var($2), $4);
+    $$=do_store(get_var($2), $4, NULL);
 }
 | '*' store_assignment_statement
 {
@@ -238,6 +272,16 @@ store_assignment_statement : '*' IDENTIFIER '=' expression
     $2->prev = deref_tac;
     $2->a = tmp_sym;
     $$ = $2;
+}
+;
+
+array_expression: IDENTIFIER '[' expression ']'
+{
+    $$=do_deref(mk_exp(NULL, get_var($1), NULL), $3);
+}
+| array_expression '[' expression ']'
+{
+    $$=do_deref($1, $3);
 }
 ;
 
@@ -307,6 +351,7 @@ primary_expression: '(' expression ')'
     $$=mk_exp(NULL, get_var($1), NULL);
 }
 | call_expression
+| array_expression
 | error
 {
     error("Bad primary expression syntax");
@@ -323,8 +368,9 @@ unary_expression: primary_expression
 {
     $$=do_un(TAC_DEREF, $2);
 }
-| '&' unary_expression
+| '&' primary_expression
 {
+    // 不允许对右值取地址!
     $$=do_un(TAC_ADDR, $2);
 }
 ;
