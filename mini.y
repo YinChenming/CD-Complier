@@ -256,6 +256,14 @@ assignment_statement : IDENTIFIER '=' expression
 	$$=do_assign(get_var($1), $3);
 }
 | store_assignment_statement
+| array_expression '=' expression
+{
+    $$=$1->tac;
+    $$->a = $$->b;
+    $$->b = $3->ret;
+    join_tac($3->tac, $$);
+    $$->op = TAC_STORE;
+}
 ;
 
 store_assignment_statement : '*' IDENTIFIER '=' expression

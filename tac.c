@@ -733,7 +733,10 @@ void out_tac(FILE *f, const TAC *i) {
             break;
 
         case TAC_STORE:
+            if (!i->c)
             fprintf(f, "*%s = %s", to_str(i->a, sa), to_str(i->b, sb));
+            else
+                fprintf(f, "%s[%s] = %s", to_str(i->a, sa), to_str(i->c, sc), to_str(i->b, sb));
             break;
 
         case TAC_COPY:
