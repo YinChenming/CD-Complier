@@ -23,6 +23,7 @@
 
 #define SYM_LABEL_BREAK (-1)
 #define SYM_LABEL_CONTINUE (-2)
+#define SYM_LABEL_DEFAULT (-3)
 
 /* type of tac */
 #define TAC_UNDEF 0 /* undefine */
@@ -152,9 +153,17 @@ const char *mk_bstr();
 
 const char *mk_cstr();
 
+const char *mk_case_str();
+
+const char *mk_dstr();
+
 TAC *mk_break(void);
 
 TAC *mk_continue(void);
+
+TAC *mk_case(SYM *sym);
+
+TAC *mk_default();
 
 SYM *get_var(const char *name);
 
@@ -181,6 +190,8 @@ TAC *do_if(const EXP *exp, TAC *stmt);
 TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2);
 
 TAC *do_while(const EXP *exp, TAC *stmt);
+
+TAC *do_switch(const EXP *exp, TAC *stmt);
 
 EXP *do_bin(int binop, EXP *exp1, EXP *exp2);
 

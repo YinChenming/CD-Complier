@@ -1,6 +1,7 @@
 #include "tac.h"
 #include <ctype.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,6 +103,18 @@ TAC *mk_continue(void) {
     t->name = NULL;
     t->value_type = SYM_LABEL_CONTINUE;
     return mk_tac(TAC_GOTO, t, NULL, NULL);
+}
+
+TAC *mk_case(SYM *sym) {
+    return mk_tac(TAC_LABEL, sym, NULL, NULL);
+}
+
+TAC *mk_default() {
+    SYM *s = mk_sym();
+    s->type = SYM_CONST;
+    s->name = NULL;
+    s->value_type = SYM_LABEL_DEFAULT;
+    return mk_tac(TAC_LABEL, s, NULL, NULL);
 }
 
 TAC *join_tac(TAC *c1, TAC *c2) {
@@ -549,14 +562,28 @@ const char *mk_bstr() {
 
 const char *mk_cstr() {
     static unsigned char i;
-    static char cstr[10];
-    snprintf(cstr, 10, "Cont%d", i++);
+    static char cstr[12];
+    snprintf(cstr, 12, "Continue%d", i++);
     return strdup(cstr);
+}
+
+const char *mk_case_str() {
+    static unsigned char i;
+    static char case_str[10];
+    snprintf(case_str, 10, "Case%d", i++);
+    return strdup(case_str);
+}
+
+const char *mk_dstr() {
+    static unsigned char i;
+    static char dstr[11];
+    snprintf(dstr, 11, "Default%d", i++);
+    return strdup(dstr);
 }
 
 TAC *do_if(const EXP *exp, TAC *stmt) {
     TAC *label = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
-    TAC *code = mk_tac(TAC_IFZ, label->a, exp->ret, NULL);
+    TAC *code = mk_tac(TAC_IFZ, mk_label(label->a->name), exp->ret, NULL);
 
     code->prev = exp->tac;
     code = join_tac(code, stmt);
@@ -568,8 +595,8 @@ TAC *do_if(const EXP *exp, TAC *stmt) {
 TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2) {
     TAC *label1 = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
     TAC *label2 = mk_tac(TAC_LABEL, mk_label(mk_lstr()), NULL, NULL);
-    TAC *code1 = mk_tac(TAC_IFZ, label1->a, exp->ret, NULL);
-    TAC *code2 = mk_tac(TAC_GOTO, label2->a, NULL, NULL);
+    TAC *code1 = mk_tac(TAC_IFZ, mk_label(label1->a->name), exp->ret, NULL);
+    TAC *code2 = mk_tac(TAC_GOTO, mk_label(label2->a->name), NULL, NULL);
 
     code1->prev = exp->tac; /* Join the code */
     code1 = join_tac(code1, stmt1);
@@ -583,7 +610,7 @@ TAC *do_test(const EXP *exp, TAC *stmt1, TAC *stmt2) {
 
 TAC *do_while(const EXP *exp, TAC *stmt) {
     TAC *label = mk_tac(TAC_LABEL, mk_label(mk_cstr()), NULL, NULL);
-    TAC *code = mk_tac(TAC_GOTO, label->a, NULL, NULL);
+    TAC *code = mk_tac(TAC_GOTO, mk_label(label->a->name), NULL, NULL);
     TAC *break_label = NULL;
 
     for (const TAC *t=stmt; t; t=t->prev) {
@@ -604,6 +631,46 @@ TAC *do_while(const EXP *exp, TAC *stmt) {
     code->prev = stmt; /* Bolt on the goto */
 
     return join_tac(join_tac(label, do_if(exp, code)), break_label);
+}
+
+TAC *do_switch(const EXP *exp, TAC *stmt) {
+    SYM *default_sym = NULL;
+    TAC *break_tac = NULL, *start_tac = exp->tac;
+
+    for (TAC *t=stmt; t; t=t->prev) {
+        if (t->op == TAC_LABEL && t->a && t->a->type == SYM_CONST) {
+            if (t->a->value_type == SYM_LABEL_DEFAULT) {
+                if (default_sym) {
+                    error("cannot redeclare default label!");
+                    return stmt;
+                }
+                t->a = mk_label(mk_dstr());
+                default_sym = mk_label(t->a->name);
+            } else {
+                SYM *case_value = t->a;
+                t->a = mk_label(mk_case_str());
+                // IFZ是条件为真时通过,条件为假时跳转
+                EXP *case_exp = do_cmp(TAC_NE, mk_exp(NULL, exp->ret, NULL), mk_exp(NULL, case_value, NULL));
+                case_exp->tac = join_tac(case_exp->tac, mk_tac(TAC_IFZ, mk_label(t->a->name), case_exp->ret, NULL));
+                start_tac = join_tac(start_tac, case_exp->tac);
+            }
+        } else if (t->op == TAC_GOTO && t->a && t->a->type == SYM_LABEL && t->a->value_type == SYM_LABEL_BREAK) {
+            if (!break_tac) {
+                break_tac = mk_tac(TAC_LABEL, mk_label(mk_bstr()), NULL, NULL);
+            }
+            t->a->name = strdup(break_tac->a->name);
+            t->a->value = t->a->value_type = 0;
+        }
+    }
+    if (default_sym) {
+        start_tac = join_tac(start_tac, mk_tac(TAC_GOTO, default_sym, NULL, NULL));
+    } else {
+        if (!break_tac) {
+            break_tac = mk_tac(TAC_LABEL, mk_label(mk_bstr()), NULL, NULL);
+        }
+        start_tac = join_tac(start_tac, mk_tac(TAC_GOTO, mk_label(break_tac->a->name), NULL, NULL));
+    }
+    return join_tac(join_tac(start_tac, stmt), break_tac);
 }
 
 SYM *get_var(const char *name) {
