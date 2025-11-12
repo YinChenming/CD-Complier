@@ -21,9 +21,11 @@
 #define SYM_VAL_DEFAULT SYM_VAL_INT
 #define SYM_VAL_SIZE SYM_VAL_INT
 
-#define SYM_LABEL_BREAK (-1)
-#define SYM_LABEL_CONTINUE (-2)
-#define SYM_LABEL_DEFAULT (-3)
+#define SYM_VAL_MAX 10
+
+#define SYM_LABEL_BREAK (-2)
+#define SYM_LABEL_CONTINUE (-3)
+#define SYM_LABEL_DEFAULT (-4)
 
 /* type of tac */
 #define TAC_UNDEF 0 /* undefine */
@@ -56,7 +58,12 @@
 #define TAC_INPUT 32 /* input a */
 #define TAC_OUTPUT 33 /* output a */
 
+#define SCOPE_GLOBAL 0
+#define SCOPE_LOCAL 1
+#define SCOPE_STRUCT 2
+
 #include <stdio.h>
+#include <stdbool.h>
 
 struct array_dim_size
 {
@@ -79,9 +86,9 @@ typedef struct sym {
     char *name;
     int offset;
     int value;
-    int value_type;
+    int value_type; /* <0 means a label need to be fill in for/while/switch, >SYM_VAL_MAX means a struct */
     int value_size;
-    int indirection; /* 0: normal global, 1: value_type*, 2: value_type**, ... */
+    int indirection; /* 0: normal value, 1: value_type*, 2: value_type**, ... */
     struct array_dim_size *dim_size; /* default NULL */
     int label;
     struct tac *address; /* SYM_FUNC */
@@ -109,7 +116,7 @@ typedef struct exp {
 /* global var */
 extern FILE *file_x, *file_s;
 extern int yylineno, scope, next_tmp, next_label;
-extern SYM *sym_tab_global, *sym_tab_local;
+// extern SYM *sym_tab_global, *sym_tab_local;
 extern TAC *tac_first, *tac_last;
 
 static const int tmp_name_len = 12;
@@ -202,6 +209,10 @@ EXP *do_cmp(int binop, EXP *exp1, const EXP *exp2);
 EXP *do_un(int unop, EXP *exp);
 
 EXP *do_call_ret(const char *name, EXP *arglist);
+
+SYM *forloop_all_global_sym(bool reset);
+
+void clear_local_hash(void);
 
 int get_size_of_type(int type);
 

@@ -1,7 +1,7 @@
 #include "tac.h"
-#include <ctype.h>
+
+#include <assert.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,13 +10,111 @@
 
 /* global var */
 int scope, next_tmp, next_label;
-SYM *sym_tab_global, *sym_tab_local;
 TAC *tac_first, *tac_last;
+
+static const int default_hash_tab_size = 20;
+static const double default_hash_tab_max_capacity = 2.0/3.0;
+
+static unsigned int hash_str(const char *s) {
+    static const unsigned long long base = 131;
+    static const unsigned long long mod = (int)1e9+7;
+    unsigned long long hash = 0;
+    while (*s) {
+        hash = (hash * base + *s++)%mod;
+    }
+    return hash;
+}
+
+typedef struct {
+    char **keys;
+    SYM **values;
+    size_t num;
+    size_t size;
+} HASH_TABLE;
+
+static HASH_TABLE sym_hash_global = {}, sym_hash_local = {};
+
+static SYM **insert_hash_idx(HASH_TABLE *table, const char *name) {
+    if (!table->size) {
+        table->keys = (char **) malloc(sizeof(char *) * default_hash_tab_size);
+        table->values = (SYM **) malloc(sizeof(SYM*) * default_hash_tab_size);
+        memset(table->keys, 0, sizeof(char *) * default_hash_tab_size);
+        memset(table->values, 0, sizeof(SYM) * default_hash_tab_size);
+        table->num = 0;
+        table->size = default_hash_tab_size;
+    } else if ((double)table->num/(double)table->size >= default_hash_tab_max_capacity) {
+        HASH_TABLE new_table = {
+            (char **) malloc(sizeof(char *) * table->size * 2),
+            (SYM **) malloc(sizeof(SYM*) * table->size * 2),
+            0, table->size * 2
+        };
+        for (size_t i=0; i<table->size; i++) {
+            if (table->keys[i]) {
+                SYM **new_sym = insert_hash_idx(&new_table, table->keys[i]);
+                *new_sym = table->values[i];
+            }
+        }
+        free(table->keys);
+        free(table->values);
+        *table = new_table;
+    }
+    const unsigned int hash = hash_str(name);
+    for (unsigned int i=hash%table->size; i!=(hash+table->size-1)%table->size; i=(i+1)%table->size) {
+        if (!table->keys[i]) {
+            table->keys[i] = strdup(name);
+            table->num++;
+            table->values[i] = (SYM *) malloc(sizeof(SYM));
+            return &table->values[i];
+        }
+        if (strcmp(table->keys[i], name) == 0) {
+            return &table->values[i];
+        }
+    }
+    assert(0);
+}
+
+static SYM *insert_hash(HASH_TABLE *table, const char *name) {
+    return *insert_hash_idx(table, name);
+}
+
+static SYM *lookup_hash(const HASH_TABLE *table, const char *name) {
+    if (table->size == 0 || !table->keys)
+        return NULL;
+    const unsigned int hash = hash_str(name);
+    for (unsigned int i=hash%table->size; i!=(hash+table->size-1)%table->size; i=(i+1)%table->size) {
+        if (!table->keys[i]) {
+            return NULL;
+        }
+        if (strcmp(table->keys[i], name) == 0) {
+            return table->values[i];
+        }
+    }
+    return NULL;
+}
+
+static void clear_hash(HASH_TABLE *table) {
+    if (table->keys) {
+        for (size_t i=0; i<table->size; i++) {
+            if (table->keys[i]) {
+                // free 由 strdup 生成的字符串
+                free(table->keys[i]);
+            }
+        }
+        free(table->keys);
+    }
+    // 可以安全地 free values 数组,其保存的是指针, free 数组本身并不会 free 那些 sym 指针
+    if (table->values) free(table->values);
+    table->keys = NULL;
+    table->values = NULL;
+    table->num = table->size = 0;
+}
+
+void clear_local_hash() {
+    clear_hash(&sym_hash_local);
+}
 
 void tac_init(void) {
     scope = 0;
-    sym_tab_global = NULL;
-    sym_tab_local = NULL;
     next_tmp = 0;
 }
 
@@ -33,24 +131,6 @@ void tac_complete(void) {
     tac_first = cur;
 }
 
-SYM *lookup_sym(SYM *symtab, const char *name) {
-    SYM *t = symtab;
-
-    while (t != NULL) {
-        if (strcmp(t->name, name) == 0)
-            break;
-        else
-            t = t->next;
-    }
-
-    return t; /* NULL if not found */
-}
-
-void insert_sym(SYM **symtab, SYM *sym) {
-    sym->next = *symtab; /* Insert at head */
-    *symtab = sym;
-}
-
 static SYM *mk_sym(void) {
     SYM *t = (SYM *) malloc(sizeof(SYM));
     t->indirection = 0;
@@ -62,10 +142,12 @@ static SYM *mk_sym(void) {
 SYM *mk_var(const char *name, const int type) {
     SYM *sym = NULL;
 
-    if (scope)
-        sym = lookup_sym(sym_tab_local, name);
-    else
-        sym = lookup_sym(sym_tab_global, name);
+    if (scope == SCOPE_LOCAL){
+        sym = lookup_hash(&sym_hash_local, name);
+    }
+    else {
+        sym = lookup_hash(&sym_hash_global, name);
+    }
 
     /* var already declared */
     if (sym != NULL) {
@@ -74,17 +156,16 @@ SYM *mk_var(const char *name, const int type) {
     }
 
     /* var unseen before, set up a new symbol table node, insert_sym it into the symbol table. */
-    sym = mk_sym();
+    if (scope == SCOPE_LOCAL) {
+        sym = insert_hash(&sym_hash_local, name);
+    } else {
+        sym = insert_hash(&sym_hash_global, name);
+    }
     sym->type = SYM_VAR;
     sym->name = strdup(name);
     sym->value_type = type;
     sym->value_size = get_size_of_type(type); // the size of a pointer is 4
     sym->offset = -1; /* Unset address */
-
-    if (scope)
-        insert_sym(&sym_tab_local, sym);
-    else
-        insert_sym(&sym_tab_global, sym);
 
     return sym;
 }
@@ -244,7 +325,7 @@ TAC *declare_para(SYM *var) { return mk_tac(TAC_FORMAL, var, NULL, NULL); }
 SYM *declare_func(const char *name, const int type) {
     SYM *sym = NULL;
 
-    sym = lookup_sym(sym_tab_global, name);
+    sym = lookup_hash(&sym_hash_global, name);
 
     /* name used before declared */
     if (sym != NULL) {
@@ -261,14 +342,13 @@ SYM *declare_func(const char *name, const int type) {
         return sym;
     }
 
-    sym = mk_sym();
+    sym = insert_hash(&sym_hash_global, name);
     sym->type = SYM_FUNC;
     sym->name = strdup(name);
     sym->value_type = type;
     sym->value_size = get_size_of_type(type);
     sym->address = NULL;
 
-    insert_sym(&sym_tab_global, sym);
     return sym;
 }
 
@@ -676,11 +756,13 @@ TAC *do_switch(const EXP *exp, TAC *stmt) {
 SYM *get_var(const char *name) {
     SYM *sym = NULL; /* Pointer to looked up symbol */
 
-    if (scope)
-        sym = lookup_sym(sym_tab_local, name);
+    if (scope == SCOPE_LOCAL)
+        // sym = lookup_sym(sym_tab_local, name);
+        sym = lookup_hash(&sym_hash_local, name);
 
     if (sym == NULL)
-        sym = lookup_sym(sym_tab_global, name);
+        // sym = lookup_sym(sym_tab_global, name);
+        sym = lookup_hash(&sym_hash_global, name);
 
     if (sym == NULL) {
         error("name not declared as local/global variable");
@@ -708,7 +790,8 @@ EXP *mk_exp(EXP *next, SYM *ret, TAC *code) {
 SYM *mk_text(const char *text) {
     SYM *sym = NULL; /* Pointer to looked up symbol */
 
-    sym = lookup_sym(sym_tab_global, text);
+    sym = lookup_hash(&sym_hash_global, text);
+    // sym = lookup_sym(sym_tab_global, text);
 
     /* text already used */
     if (sym != NULL) {
@@ -716,14 +799,15 @@ SYM *mk_text(const char *text) {
     }
 
     /* text unseen before */
-    sym = mk_sym();
+    sym = insert_hash(&sym_hash_global, text);
+    // sym = mk_sym();
     sym->type = SYM_TEXT;
     sym->name = strdup(text);
     sym->value_type = SYM_VAL_TEXT;
     sym->value_size = get_size_of_type(SYM_VAL_TEXT);
     sym->label = next_label++;
 
-    insert_sym(&sym_tab_global, sym);
+    // insert_sym(&sym_tab_global, sym);
     return sym;
 }
 
@@ -733,18 +817,20 @@ SYM *mk_const(const int n, const int type) {
     char name[10];
     sprintf(name, "%d", n);
 
-    sym = lookup_sym(sym_tab_global, name);
+    sym = lookup_hash(&sym_hash_global, name);
+    // sym = lookup_sym(sym_tab_global, name);
     if (sym != NULL) {
         return sym;
     }
 
-    sym = mk_sym();
+    sym = insert_hash(&sym_hash_global, name);
+    // sym = mk_sym();
     sym->type = SYM_CONST;
     sym->value = n;
     sym->value_type = type;
     sym->value_size = get_size_of_type(type);
     sym->name = strdup(name);
-    insert_sym(&sym_tab_global, sym);
+    // insert_sym(&sym_tab_global, sym);
 
     return sym;
 }
@@ -952,6 +1038,19 @@ void out_tac(FILE *f, const TAC *i) {
             error("unknown TAC opcode");
             break;
     }
+}
+
+SYM *forloop_all_global_sym(bool reset) {
+    static size_t i;
+    if (reset) {
+        i = 0;
+        return NULL;
+    }
+    while (i<sym_hash_global.size && !sym_hash_global.keys[i])
+        ++i;
+    if (i<sym_hash_global.size)
+        return sym_hash_global.values[i++];
+    return NULL;
 }
 
 int get_size_of_type(const int type) {

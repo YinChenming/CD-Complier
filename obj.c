@@ -390,7 +390,8 @@ static void asm_str(const SYM* s)
 
 static void asm_static(void)
 {
-    for (const SYM* sl = sym_tab_global; sl != NULL; sl = sl->next)
+    forloop_all_global_sym(1);
+    for (const SYM* sl = forloop_all_global_sym(0); sl != NULL; sl = forloop_all_global_sym(0))
     {
         if (sl->type == SYM_TEXT)
             asm_str(sl);

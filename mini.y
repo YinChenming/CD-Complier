@@ -151,8 +151,9 @@ int hex2char(char* str, int len)
     function : function_head '(' parameter_list ')' block
     {
         $$=do_func($1, $3, $5);
-        scope=0; /* Leave local scope. */
-        sym_tab_local=NULL; /* Clear local symbol table. */
+        scope=SCOPE_GLOBAL; /* Leave local scope. */
+        clear_local_hash();
+        // sym_tab_local=NULL; /* Clear local symbol table. */
     }
     | error
     {
@@ -164,20 +165,23 @@ int hex2char(char* str, int len)
     function_head : IDENTIFIER
     {
         $$=declare_func($1, SYM_VAL_INT);	// default return value for a function is INT
-        scope=1; /* Enter local scope. */
-        sym_tab_local=NULL; /* Init local symbol table. */
+        scope=SCOPE_LOCAL; /* Enter local scope. */
+        clear_local_hash();
+        // sym_tab_local=NULL; /* Init local symbol table. */
     }
     | INT IDENTIFIER
     {
         $$=declare_func($2, SYM_VAL_INT);	// default return value for a function is INT
-        scope=1; /* Enter local scope. */
-        sym_tab_local=NULL; /* Init local symbol table. */
+        scope=SCOPE_LOCAL; /* Enter local scope. */
+        clear_local_hash();
+        // sym_tab_local=NULL; /* Init local symbol table. */
     }
     | CHAR IDENTIFIER
     {
         $$=declare_func($2, SYM_VAL_CHAR);	// default return value for a function is INT
-        scope=1; /* Enter local scope. */
-        sym_tab_local=NULL; /* Init local symbol table. */
+        scope=SCOPE_LOCAL; /* Enter local scope. */
+        clear_local_hash();
+        // sym_tab_local=NULL; /* Init local symbol table. */
     }
     ;
     
