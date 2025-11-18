@@ -8,6 +8,7 @@
 #define SYM_TEXT 3
 #define SYM_CONST 4
 #define SYM_LABEL 5
+#define SYM_STRUCT 6
 
 /* type of symbol's value */
 #define SYM_VAL_UNDEF (-1)
@@ -21,6 +22,7 @@
 #define SYM_VAL_DEFAULT SYM_VAL_INT
 #define SYM_VAL_SIZE SYM_VAL_INT
 
+#define SYM_VAL_STRUCT 9
 #define SYM_VAL_MAX 10
 
 #define SYM_LABEL_BREAK (-2)
@@ -77,7 +79,7 @@ typedef struct sym {
         type:SYM_VAR name:abc value:98 offset:-1
         type:SYM_VAR name:bcd value:99 offset:4
         type:SYM_LABEL name:L1/max
-        type:SYM_INT value:1
+        type:SYM_CONST value:1
         type:SYM_FUNC name:max address:1234
         type:SYM_TEXT name:"hello" label:10
     */
@@ -92,6 +94,7 @@ typedef struct sym {
     struct array_dim_size *dim_size; /* default NULL */
     int label;
     struct tac *address; /* SYM_FUNC */
+    struct sym *struct_sym;
     struct sym *next;
     void *etc;
 } SYM;
@@ -134,7 +137,7 @@ void out_sym(FILE *f, const SYM *s);
 
 void out_tac(FILE *f, const TAC *i);
 
-void free_sym(SYM *sym, const SYM **symtab);
+// void free_sym(SYM *sym, const SYM **symtab);
 
 void free_tac(TAC *tac);
 
@@ -172,6 +175,8 @@ TAC *mk_case(SYM *sym);
 
 TAC *mk_default();
 
+TAC *mk_struct_vars(const char *struct_name, TAC *tac);
+
 SYM *get_var(const char *name);
 
 SYM *declare_func(const char *name, int type);
@@ -180,7 +185,11 @@ TAC *declare_var(SYM *var);
 
 TAC *declare_para(SYM *var);
 
+SYM *declare_struct(const char *name);
+
 TAC *do_func(const SYM *func, TAC *args, TAC *code);
+
+void do_struct(SYM *sym, TAC *declarations);
 
 TAC *do_assign(SYM *var, const EXP *exp);
 
@@ -210,7 +219,13 @@ EXP *do_un(int unop, EXP *exp);
 
 EXP *do_call_ret(const char *name, EXP *arglist);
 
+EXP *do_get_member(EXP *exp, const char *name);
+
+EXP *do_pointer_get_member(EXP *exp, const char *name);
+
 SYM *forloop_all_global_sym(bool reset);
+
+void print_structs(FILE *f);
 
 void clear_local_hash(void);
 

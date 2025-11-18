@@ -19,8 +19,8 @@ static unsigned int hash_str(const char *s) {
     static const unsigned long long base = 131;
     static const unsigned long long mod = (int)1e9+7;
     unsigned long long hash = 0;
-    while (*s) {
-        hash = (hash * base + *s++)%mod;
+    for (const char *c = s; *c; c++) {
+        hash = (hash * base + *c) % mod;
     }
     return hash;
 }
@@ -32,14 +32,18 @@ typedef struct {
     size_t size;
 } HASH_TABLE;
 
-static HASH_TABLE sym_hash_global = {}, sym_hash_local = {};
+static HASH_TABLE sym_hash_global = {}, sym_hash_local = {}, sym_hash_struct = {};
 
 static SYM **insert_hash_idx(HASH_TABLE *table, const char *name) {
+    if (!name || *name == '\0') {
+        error("empty string!");
+        return NULL;
+    }
     if (!table->size) {
         table->keys = (char **) malloc(sizeof(char *) * default_hash_tab_size);
         table->values = (SYM **) malloc(sizeof(SYM*) * default_hash_tab_size);
         memset(table->keys, 0, sizeof(char *) * default_hash_tab_size);
-        memset(table->values, 0, sizeof(SYM) * default_hash_tab_size);
+        memset(table->values, 0, sizeof(SYM*) * default_hash_tab_size);
         table->num = 0;
         table->size = default_hash_tab_size;
     } else if ((double)table->num/(double)table->size >= default_hash_tab_max_capacity) {
@@ -74,6 +78,10 @@ static SYM **insert_hash_idx(HASH_TABLE *table, const char *name) {
 }
 
 static SYM *insert_hash(HASH_TABLE *table, const char *name) {
+    if (!name || *name == '\0') {
+        error("empty string!");
+        return NULL;
+    }
     return *insert_hash_idx(table, name);
 }
 
@@ -198,6 +206,31 @@ TAC *mk_default() {
     return mk_tac(TAC_LABEL, s, NULL, NULL);
 }
 
+TAC *mk_struct_vars(const char *struct_name, TAC *tac) {
+    const SYM *struct_sym = lookup_hash(&sym_hash_struct, struct_name);
+    if (!struct_sym || !tac) {
+        error("unknown struct name '%s'", struct_name);
+        return NULL;
+    }
+    for (const TAC *t=tac; t; t=t->prev) {
+        t->a->type = SYM_VAR;
+        t->a->value_type = SYM_VAL_STRUCT;
+        t->a->struct_sym = (SYM *)struct_sym;
+        if (t->a->indirection > 0) {
+            if (t->a->dim_size == NULL) {
+                // 如果a是普通指针
+                t->a->value_size = POINTER_SIZE;
+            } else {
+                t->a->value_size = t->a->value_size / get_size_of_type(SYM_VAL_DEFAULT) *
+                    (t->a->indirection - t->a->dim_size->level > 1 ? POINTER_SIZE : struct_sym->value_size);
+            }
+        } else {
+            t->a->value_size = struct_sym->value_size;
+        }
+    }
+    return tac;
+}
+
 TAC *join_tac(TAC *c1, TAC *c2) {
     if (c1 == NULL)
         return c2;
@@ -213,29 +246,29 @@ TAC *join_tac(TAC *c1, TAC *c2) {
     return c2;
 }
 
-void free_sym(SYM *sym, const SYM **symtab)
-{
-    if (!sym) return;
-    if (symtab && *symtab)
-    {
-        if (strcmp((*symtab)->name, sym->name) == 0)
-            *symtab = (*symtab)->next;
-        else
-        {
-            SYM *t = (*symtab)->next;
-            while (t->next)
-            {
-                if (strcmp(t->next->name, sym->name) == 0)
-                    break;
-                t = t->next;
-            }
-            if (t->next)
-                t->next = t->next->next;
-        }
-    }
-    free(sym->name);
-    free(sym);
-}
+// void free_sym(SYM *sym, const SYM **symtab)
+// {
+//     if (!sym) return;
+//     if (symtab && *symtab)
+//     {
+//         if (strcmp((*symtab)->name, sym->name) == 0)
+//             *symtab = (*symtab)->next;
+//         else
+//         {
+//             SYM *t = (*symtab)->next;
+//             while (t->next)
+//             {
+//                 if (strcmp(t->next->name, sym->name) == 0)
+//                     break;
+//                 t = t->next;
+//             }
+//             if (t->next)
+//                 t->next = t->next->next;
+//         }
+//     }
+//     free(sym->name);
+//     free(sym);
+// }
 
 SYM *mk_dim(SYM *sym, const int size)
 {
@@ -310,6 +343,46 @@ TAC *do_func(const SYM *func, TAC *args, TAC *code) {
     tend->prev = join_tac(tbegin, code);
 
     return tend;
+}
+
+SYM *declare_struct(const char *name) {
+    SYM *sym = lookup_hash(&sym_hash_global, name);
+    if (sym != NULL) {
+        if (sym->type == SYM_STRUCT) {
+            error("struct already declared");
+            return NULL;
+        }
+        if (sym->type != SYM_UNDEF) {
+            error("struct name already used");
+            return NULL;
+        }
+        return sym;
+    }
+    sym = insert_hash(&sym_hash_global, name);
+    sym->type = SYM_STRUCT;
+    sym->name = strdup(name);
+    sym->value_size = 0;
+    return sym;
+}
+
+void do_struct(SYM *sym, TAC *declarations) {
+    sym->next = sym->struct_sym = NULL;
+    for (const TAC *t = declarations; t; t = t->prev) {
+        if (t->op != TAC_VAR || !t->a) {
+            error("cannot use non-declaration in a struct block!");
+            return;
+        }
+        SYM *child = t->a;
+        sym->value_size += child->value_size;
+        child->next = sym->struct_sym;
+        child->struct_sym = sym;
+        sym->struct_sym = child;
+    }
+    if (lookup_hash(&sym_hash_struct, sym->name) != NULL) {
+        error("cannot redeclare struct!");
+        return;
+    }
+    *insert_hash_idx(&sym_hash_struct, sym->name) = sym;
 }
 
 SYM *mk_tmp(const int type) {
@@ -559,6 +632,7 @@ EXP *do_un(const int unop, EXP *exp) {
             break;
         default: break;
     }
+    tmp_sym->struct_sym = exp->ret->struct_sym;
     TAC *temp = mk_tac(TAC_VAR, tmp_sym, NULL, NULL);
 
     temp->prev = exp->tac;
@@ -753,6 +827,54 @@ TAC *do_switch(const EXP *exp, TAC *stmt) {
     return join_tac(join_tac(start_tac, stmt), break_tac);
 }
 
+
+EXP *do_get_member(EXP *exp, const char *name) {
+    if (!exp || !exp->ret) {
+        error("invalid arguments");
+        return exp;
+    }
+    if (exp->ret->value_type != SYM_VAL_STRUCT || !exp->ret->struct_sym || exp->ret->indirection) {
+        error("cannot get member of a non-struct!");
+        return exp;
+    }
+    return do_pointer_get_member(do_un(TAC_ADDR, exp), name);
+}
+
+EXP *do_pointer_get_member(EXP *exp, const char *name) {
+    if (!exp || !exp->ret) {
+        error("invalid arguments");
+        return exp;
+    }
+    // 传入的必须是一个纯指针,不能是数组
+    if (exp->ret->value_type != SYM_VAL_STRUCT || !exp->ret->struct_sym || exp->ret->indirection != 1 || exp->ret->dim_size) {
+        error("cannot get member of a non-struct pointer!");
+        return exp;
+    }
+    size_t offset = 0;
+    const SYM *s=exp->ret->struct_sym->struct_sym;
+    for (; s; s=s->next) {
+        if (s->name && strcmp(s->name, name) == 0) {
+            break;
+        }
+        offset += s->value_size;
+    }
+    if (!s) {
+        error("invalid member name '%s' in struct '%s'!", name, exp->ret->struct_sym->name);
+        return exp;
+    }
+    // 这里我们要重写数据类型
+    exp->ret->value_type = SYM_VAL_CHAR;    // 强制使用char类型按字节读取
+    exp->ret->value_size = s->value_size;   // 实际需要读取的长度
+    EXP * result_exp = do_deref(exp, mk_exp(NULL, mk_const((int) offset, SYM_VAL_SIZE), NULL));
+    // 再将结果还原为原来的类型
+    result_exp->ret->value_type = s->value_type;
+    result_exp->ret->value_size = s->value_size;
+    result_exp->ret->dim_size = s->dim_size;
+    result_exp->ret->struct_sym = s->struct_sym;
+    result_exp->ret->indirection = s->indirection;
+    return result_exp;
+}
+
 SYM *get_var(const char *name) {
     SYM *sym = NULL; /* Pointer to looked up symbol */
 
@@ -872,6 +994,43 @@ void out_str(FILE *f, const char *format, ...) {
 
 void out_sym(FILE *f, const SYM *s) { out_str(f, "%p\t%s", s, s->name); }
 
+static void out_var(FILE *f, const SYM *a) {
+    char sa[tmp_name_len+1];
+    if (!a) return;
+    switch (a->value_type)
+    {
+        case SYM_VAL_BOOL:
+            fprintf(f, "bool ");break;
+        case SYM_VAL_CHAR:
+            fprintf(f, "char ");break;
+        case SYM_VAL_INT:
+            fprintf(f, "int ");break;
+        case SYM_VAL_STRUCT:
+            fprintf(f, "struct %s ", a->struct_sym->name);break;
+        default:break;
+    }
+    if (a->dim_size == NULL || a->indirection-a->dim_size->level>1)
+    {
+        const int indirection = a->dim_size ? a->indirection-a->dim_size->level - 1 : a->indirection;
+        for (int j = 0; j < indirection; j++)
+        {
+            fprintf(f, "*");
+        }
+    }
+    fprintf(f, "%s", to_str(a, sa));
+    if (a->dim_size)
+    {
+        const struct array_dim_size *dim = a->dim_size;
+        while (dim != NULL)
+        {
+            if (dim->size > 0) fprintf(f, "[%d]", dim->size);
+            else fprintf(f, "[]");
+            dim = dim->next;
+        }
+    }
+    fprintf(f, "(size=%d)", a->value_size);
+}
+
 void out_tac(FILE *f, const TAC *i) {
     char sa[tmp_name_len + 1]; /* For text of TAC args */
     char sb[tmp_name_len + 1];
@@ -989,41 +1148,7 @@ void out_tac(FILE *f, const TAC *i) {
             break;
 
         case TAC_VAR:
-            if (i->a)
-            {
-                switch (i->a->value_type)
-                {
-                    case SYM_VAL_BOOL:
-                        fprintf(f, "bool ");break;
-                    case SYM_VAL_CHAR:
-                        fprintf(f, "char ");break;
-                    case SYM_VAL_INT:
-                        fprintf(f, "int ");break;
-                    default:break;
-                }
-                if (i->a->dim_size == NULL || i->a->indirection-i->a->dim_size->level>1)
-                {
-                    const int indirection = i->a->dim_size ? i->a->indirection-i->a->dim_size->level - 1 : i->a->indirection;
-                    for (int j = 0; j < indirection; j++)
-                    {
-                        fprintf(f, "*");
-                    }
-                }
-            }
-            fprintf(f, "%s", to_str(i->a, sa));
-            if (i->a && i->a->dim_size)
-            {
-                const struct array_dim_size *dim = i->a->dim_size;
-                while (dim != NULL)
-                {
-                    if (dim->size > 0) fprintf(f, "[%d]", dim->size);
-                    else fprintf(f, "[]");
-                    dim = dim->next;
-                }
-            }
-            if (i->a) {
-                fprintf(f, "(size=%d)", i->a->value_size);
-            }
+            out_var(f, i->a);
             break;
 
         case TAC_BEGINFUNC:
@@ -1040,17 +1165,45 @@ void out_tac(FILE *f, const TAC *i) {
     }
 }
 
-SYM *forloop_all_global_sym(bool reset) {
+static SYM *forloop_all_sym(const HASH_TABLE *table) {
     static size_t i;
-    if (reset) {
+    static const HASH_TABLE *hash_table;
+    if (table) {
         i = 0;
+        hash_table = table;
         return NULL;
     }
-    while (i<sym_hash_global.size && !sym_hash_global.keys[i])
+    while (i<hash_table->size && !hash_table->keys[i])
         ++i;
-    if (i<sym_hash_global.size)
-        return sym_hash_global.values[i++];
+    if (i<hash_table->size)
+        return hash_table->values[i++];
     return NULL;
+}
+
+SYM *forloop_all_global_sym(const bool reset) {
+    if (reset) return forloop_all_sym(&sym_hash_global);
+    return forloop_all_sym(NULL);
+}
+
+void print_structs(FILE *f) {
+    if (!f) return;
+    forloop_all_sym(&sym_hash_struct);
+    for (const SYM *sym=forloop_all_sym(NULL); sym; sym=forloop_all_sym(NULL)) {
+        fprintf(f, "struct %s {", sym->name);
+        if (!sym->struct_sym) {
+            fprintf(f, "};\n");
+            continue;
+        } else fprintf(f, "\n");
+        for (const SYM *child=sym->struct_sym; child; child=child->next) {
+            fprintf(f, "\t");
+            if (child->name)
+                out_var(f, child);
+            else fprintf(f, "char [%d]", child->value_size);
+            fprintf(f, ";\n");
+        }
+        fprintf(f, "};(size=%d)\n", sym->value_size);
+    }
+    fprintf(f, "\n");
 }
 
 int get_size_of_type(const int type) {

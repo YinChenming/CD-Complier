@@ -19,7 +19,7 @@ void error(const char *format, ...) {
 
 void tac_list() {
     out_str(file_x, "\n# tac list\n\n");
-
+    print_structs(file_x);
     for (TAC *cur = tac_first; cur != NULL; cur = cur->next) {
         out_str(file_x, "%p\t", cur);
         out_tac(file_x, cur);

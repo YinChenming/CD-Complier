@@ -41,7 +41,7 @@ int hex2char(char* str, int len)
 	EXP	*exp;
 }
 
-%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN CHAR FOR BREAK CONTINUE SWITCH CASE DEFAULT
+%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN CHAR FOR BREAK CONTINUE SWITCH CASE DEFAULT STRUCT RIGHT_ARROW
 %token <string> INTEGER IDENTIFIER TEXT CHARACTER
 
 %left EQ NE LT LE GT GE
@@ -50,11 +50,11 @@ int hex2char(char* str, int len)
 %right UMINUS
 
 %type <tac> program function_declaration_list function_declaration function parameter_list parameter variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
-%type <tac> store_assignment_statement switch_statement for_exp_opt
+%type <tac> store_assignment_statement switch_statement for_exp_opt struct
 %type <exp> argument_list expression_list
 %type <exp> primary_expression unary_expression multiplicative_expression additive_expression relational_expression equality_expression expression call_expression
-%type <exp> array_expression
-%type <sym> function_head variable array_variable
+%type <exp> array_expression struct_expression postfix_expression
+%type <sym> function_head variable array_variable struct_head
 
 %%
     
@@ -74,6 +74,7 @@ int hex2char(char* str, int len)
     
     function_declaration : function
     | declaration
+    | struct
     ;
     
     declaration : INT variable_list ';'
@@ -100,6 +101,10 @@ int hex2char(char* str, int len)
             sym->value_size = sym->value_size / get_size_of_type(SYM_VAL_DEFAULT) * new_size;
             p = p->prev;
         }
+    }
+    | STRUCT IDENTIFIER variable_list ';'
+    {
+        $$=mk_struct_vars($2, $3);
     }
     ;
     
@@ -145,6 +150,28 @@ int hex2char(char* str, int len)
     | variable_list ',' variable
     {
         $$=join_tac($1, declare_var($3));
+    }
+    ;
+    
+    struct : struct_head '{' declaration_list '}' ';'
+    {
+        $$=NULL;
+        do_struct($1, $3);
+        scope=SCOPE_GLOBAL;
+        clear_local_hash();
+    }
+    | error
+    {
+        error("Bad struct syntax");
+        $$=NULL;
+    }
+    ;
+    
+    struct_head: STRUCT IDENTIFIER
+    {
+        $$=declare_struct($2);
+        scope=SCOPE_LOCAL;
+        clear_local_hash();
     }
     ;
     
@@ -306,11 +333,13 @@ int hex2char(char* str, int len)
     }
     ;
     
-    array_expression: IDENTIFIER '[' expression ']'
-    {
-        $$=do_deref(mk_exp(NULL, get_var($1), NULL), $3);
-    }
-    | array_expression '[' expression ']'
+    postfix_expression: primary_expression
+    | array_expression
+    | struct_expression
+    | call_expression
+    ;
+    
+    array_expression: postfix_expression '[' expression ']'
     {
         $$=do_deref($1, $3);
     }
@@ -381,8 +410,6 @@ int hex2char(char* str, int len)
     {
         $$=mk_exp(NULL, get_var($1), NULL);
     }
-    | call_expression
-    | array_expression
     | error
     {
         error("Bad primary expression syntax");
@@ -390,7 +417,7 @@ int hex2char(char* str, int len)
     }
     ;
     
-    unary_expression: primary_expression
+    unary_expression: postfix_expression
     | '-' unary_expression  %prec UMINUS
     {
         $$=do_un(TAC_NEG, $2);
@@ -553,6 +580,16 @@ int hex2char(char* str, int len)
     call_expression : IDENTIFIER '(' argument_list ')'
     {
         $$=do_call_ret($1, $3);
+    }
+    ;
+    
+    struct_expression: postfix_expression '.' IDENTIFIER
+    {
+        $$=do_get_member($1, $3);
+    }
+    | postfix_expression RIGHT_ARROW IDENTIFIER
+    {
+        $$=do_pointer_get_member($1, $3);
     }
     ;
     
