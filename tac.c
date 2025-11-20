@@ -121,6 +121,16 @@ void clear_local_hash() {
     clear_hash(&sym_hash_local);
 }
 
+static SYM *cp_var(SYM *a, const SYM *b) {
+    a->value_size = b->value_size;
+    a->value_type = b->value_type;
+    a->indirection = b->indirection;
+    a->struct_sym = b->struct_sym;
+    a->dim_size = b->dim_size;
+    a->type = b->type;
+    return a;
+}
+
 void tac_init(void) {
     scope = 0;
     next_tmp = 0;
@@ -172,7 +182,7 @@ SYM *mk_var(const char *name, const int type) {
     sym->type = SYM_VAR;
     sym->name = strdup(name);
     sym->value_type = type;
-    sym->value_size = get_size_of_type(type); // the size of a pointer is 4
+    sym->value_size = get_size_of_type(type, -1); // the size of a pointer is 4
     sym->offset = -1; /* Unset address */
 
     return sym;
@@ -212,7 +222,7 @@ TAC *mk_struct_vars(const char *struct_name, TAC *tac) {
         error("unknown struct name '%s'", struct_name);
         return NULL;
     }
-    for (const TAC *t=tac; t; t=t->prev) {
+    for (const TAC *t=tac; t && t->op == TAC_VAR; t=t->prev) {
         t->a->type = SYM_VAR;
         t->a->value_type = SYM_VAL_STRUCT;
         t->a->struct_sym = (SYM *)struct_sym;
@@ -221,8 +231,8 @@ TAC *mk_struct_vars(const char *struct_name, TAC *tac) {
                 // 如果a是普通指针
                 t->a->value_size = POINTER_SIZE;
             } else {
-                t->a->value_size = t->a->value_size / get_size_of_type(SYM_VAL_DEFAULT) *
-                    (t->a->indirection - t->a->dim_size->level > 1 ? POINTER_SIZE : struct_sym->value_size);
+                t->a->value_size = t->a->value_size / get_size_of_type(SYM_VAL_DEFAULT, -1) *
+                    (is_pointer(t->a) ? POINTER_SIZE : struct_sym->value_size);
             }
         } else {
             t->a->value_size = struct_sym->value_size;
@@ -274,7 +284,7 @@ SYM *mk_dim(SYM *sym, const int size)
 {
     if (sym->dim_size == NULL)
     {
-        sym->value_size = get_size_of_type(sym->value_type) * size;
+        sym->value_size = get_size_of_type(sym->value_type, sym->value_size) * size;
         sym->dim_size = (struct array_dim_size *) malloc(sizeof(struct array_dim_size));
         sym->dim_size->next = NULL;
         sym->dim_size->size = size;
@@ -367,6 +377,7 @@ SYM *declare_struct(const char *name) {
 
 void do_struct(SYM *sym, TAC *declarations) {
     sym->next = sym->struct_sym = NULL;
+    sym->value_size = 0;
     for (const TAC *t = declarations; t; t = t->prev) {
         if (t->op != TAC_VAR || !t->a) {
             error("cannot use non-declaration in a struct block!");
@@ -375,8 +386,26 @@ void do_struct(SYM *sym, TAC *declarations) {
         SYM *child = t->a;
         sym->value_size += child->value_size;
         child->next = sym->struct_sym;
-        child->struct_sym = sym;
+        // child->struct_sym = sym;
         sym->struct_sym = child;
+    }
+    // 地址对齐!!!
+    // 这里我们的实现与标准c语言不同,由于我们最后会直接通过地址操作拿到成员,所以每个成员的地址都必须与POINTER_SIZE对齐
+    int offset = 0;
+    for (SYM *child = sym->struct_sym; child && child->next; child = child->next) {
+        offset += child->value_size;
+        if (offset % POINTER_SIZE) {
+            SYM *padding = mk_sym();
+            padding->value_type = SYM_VAL_CHAR;
+            padding->type = SYM_VAR;
+            padding->name = NULL;
+            padding->dim_size = NULL;
+            padding->indirection = 0;
+            padding->struct_sym = NULL;
+            mk_dim(padding, POINTER_SIZE - offset % POINTER_SIZE);
+            padding->next = child->next;
+            child->next = padding;
+        }
     }
     if (lookup_hash(&sym_hash_struct, sym->name) != NULL) {
         error("cannot redeclare struct!");
@@ -419,7 +448,7 @@ SYM *declare_func(const char *name, const int type) {
     sym->type = SYM_FUNC;
     sym->name = strdup(name);
     sym->value_type = type;
-    sym->value_size = get_size_of_type(type);
+    sym->value_size = get_size_of_type(type, -1);
     sym->address = NULL;
 
     return sym;
@@ -533,18 +562,40 @@ EXP *do_bin(const int binop, EXP *exp1, EXP *exp2) {
 }
 
 EXP *do_deref(EXP *exp1, EXP *exp2) {
+    if (!exp1 || !exp1->ret)
+        return exp1;
+    // // 如果exp1的返回值是取地址b=&a,那直接做加法/返回a
+    // if (exp1->tac && exp1->tac->op == TAC_ADDR && exp1->tac->a && exp1->tac->b && exp1->tac->a == exp1->ret) {
+    //     exp1->ret = exp1->tac->b;
+    //     // if (exp1->tac->prev && exp1->tac->prev->op == TAC_VAR && exp1->tac->prev->a == exp1->tac->a) {
+    //     //     exp1->tac = exp1->tac->prev->prev;
+    //     // } else
+    //         exp1->tac = exp1->tac->prev;
+    //     if (!exp2) {
+    //         return exp1;
+    //     } else {
+    //         TAC *tac = declare_var(mk_tmp(SYM_VAL_DEFAULT));
+    //         tac = join_tac(tac, mk_tac(TAC_ADD, tac->a, exp1->ret, exp2->ret));
+    //         exp1->ret = cp_var(tac->a, exp1->ret);
+    //         exp1->tac = join_tac(exp1->tac, exp2->tac);
+    //         exp1->tac = join_tac(exp1->tac, tac);
+    //         return exp1;
+    //     }
+    // }
     if (!exp2) {
         return do_un(TAC_DEREF, exp1);
     }
-    // 对a[c][b]的多维数组取值做特殊处理,exp1: a[c], exp2: [b]
-    // 满足exp1返回一个数组,且该数组由a[b]得到
-    if (exp1->ret->dim_size != NULL && exp1->tac && exp1->tac->op == TAC_DEREF && exp1->tac->c != NULL) {
-        // 常量计算
-        // 除到最后value_size会自动回到定义该变量时的根据value_type设置的value_size
-        exp1->ret->value_size /= exp1->ret->dim_size->size;
-        exp1->ret->dim_size = exp1->ret->dim_size->next;
-        exp1->ret->indirection -= 1;
-        if (exp1->tac->c->type == SYM_CONST && exp2->ret->type == SYM_CONST) {
+    if (exp1->ret != NULL && exp1->tac && exp1->tac->op == TAC_DEREF) {
+        // 对a[c][b]的多维数组取值做特殊处理,exp1: a[c], exp2: [b]
+        // 满足exp1返回一个数组,且该数组由a[b]得到
+        if (is_array(exp1->ret)) {
+            // 常量计算
+            // 除到最后value_size会自动回到定义该变量时的根据value_type设置的value_size
+            exp1->ret->value_size /= exp1->ret->dim_size->size;
+            exp1->ret->dim_size = exp1->ret->dim_size->next;
+            exp1->ret->indirection -= 1;
+        }
+        if (exp1->tac->c && exp1->tac->c->type == SYM_CONST && exp2->ret->type == SYM_CONST) {
             // a[1][2] -> a[1+2]
             exp1->tac->c = mk_const(exp1->tac->c->value + exp2->ret->value * exp1->ret->value_size, SYM_VAL_SIZE);
         } else {
@@ -558,16 +609,17 @@ EXP *do_deref(EXP *exp1, EXP *exp2) {
 
     // temp = *(a+b) = a[b]
     TAC *temp = mk_tac(TAC_VAR, mk_tmp(exp1->ret->value_type), NULL, NULL);
+    cp_var(temp->a, exp1->ret);
     temp->a->indirection = exp1->ret->indirection - 1;
     if (exp1->ret->dim_size != NULL) {
         temp->a->dim_size = exp1->ret->dim_size->next;
         if (temp->a->dim_size == NULL) {
-            temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, temp->a->indirection);
+            temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, exp1->ret->value_size/exp1->ret->dim_size->size, temp->a->indirection);
         } else
         temp->a->value_size = exp1->ret->value_size / exp1->ret->dim_size->size;
     } else {
         temp->a->dim_size = NULL;
-        temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, temp->a->indirection>0);
+        temp->a->value_size = get_size_of_type_or_pointer(temp->a->value_type, exp1->ret->value_size, temp->a->indirection>0);
     }
     if (exp2->ret->type == SYM_CONST) {
         // 生成一个新的常量,不能修改原常量
@@ -602,6 +654,31 @@ EXP *do_cmp(const int binop, EXP *exp1, const EXP *exp2) {
 }
 
 EXP *do_un(const int unop, EXP *exp) {
+    // 对TAC_ADDR做特判
+    if (unop == TAC_ADDR && exp && exp->tac && exp->tac->op == TAC_DEREF && exp->tac->a == exp->ret) {
+        SYM *c = exp->tac->c;
+        exp->ret = exp->tac->b;
+        if (exp->tac->prev && exp->tac->prev->op == TAC_VAR && exp->tac->prev->a == exp->tac->a) {
+            exp->tac = exp->tac->prev->prev;
+        } else
+            exp->tac = exp->tac->prev;
+        if (c) {
+            TAC *tac = declare_var(mk_tmp(SYM_VAL_DEFAULT));
+            tac = join_tac(tac, mk_tac(TAC_ADD, tac->a, exp->ret, c));
+            tac = exp->tac = join_tac(exp->tac, tac);
+            exp->ret = cp_var(tac->a, exp->ret);
+            // 如果是&a[b],我们需要做特殊处理,当exp->tac->b是数组时需要擦除返回值的一维数组信息
+            // 例如:有int arr[10][20],语句&arr[1]的返回值应该是int *(arr_p[20])而非int arr[10][20]
+            // 这里我们直接让exp->ret->dim_size移到下一维即可
+            if (exp->ret->dim_size) {
+                exp->ret->value_size /= exp->ret->dim_size->size;
+                exp->ret->dim_size = exp->ret->dim_size->next;
+            }
+            return exp;
+        } else {
+            return exp;
+        }
+    }
     /* TAC code for temp symbol */
     SYM *tmp_sym = mk_tmp(exp->ret->value_type);
     switch (unop)
@@ -840,13 +917,16 @@ EXP *do_get_member(EXP *exp, const char *name) {
     return do_pointer_get_member(do_un(TAC_ADDR, exp), name);
 }
 
+/*
+ * 本函数会把形如a->name翻译成*(a+offset)
+ */
 EXP *do_pointer_get_member(EXP *exp, const char *name) {
-    if (!exp || !exp->ret) {
+    if (!exp || !exp->ret || !name || !*name) {
         error("invalid arguments");
         return exp;
     }
     // 传入的必须是一个纯指针,不能是数组
-    if (exp->ret->value_type != SYM_VAL_STRUCT || !exp->ret->struct_sym || exp->ret->indirection != 1 || exp->ret->dim_size) {
+    if (exp->ret->value_type != SYM_VAL_STRUCT || !exp->ret->struct_sym || !is_pointer(exp->ret)) {
         error("cannot get member of a non-struct pointer!");
         return exp;
     }
@@ -863,15 +943,19 @@ EXP *do_pointer_get_member(EXP *exp, const char *name) {
         return exp;
     }
     // 这里我们要重写数据类型
-    exp->ret->value_type = SYM_VAL_CHAR;    // 强制使用char类型按字节读取
-    exp->ret->value_size = s->value_size;   // 实际需要读取的长度
+    // exp->tac = join_tac(exp->tac, declare_var(mk_tmp(s->value_type)));
+    SYM *tmp_sym = exp->tac->a;
+    tmp_sym->indirection = s->indirection+1;
+    tmp_sym->value_type = s->value_type;
+    tmp_sym->value_size = s->value_size;
+    tmp_sym->dim_size = s->dim_size;
+    tmp_sym->struct_sym = s->struct_sym;
+    // exp->tac = do_assign(tmp_sym, exp);
+    // exp->ret = tmp_sym;
     EXP * result_exp = do_deref(exp, mk_exp(NULL, mk_const((int) offset, SYM_VAL_SIZE), NULL));
     // 再将结果还原为原来的类型
-    result_exp->ret->value_type = s->value_type;
-    result_exp->ret->value_size = s->value_size;
-    result_exp->ret->dim_size = s->dim_size;
-    result_exp->ret->struct_sym = s->struct_sym;
-    result_exp->ret->indirection = s->indirection;
+    result_exp->ret = cp_var(result_exp->ret, s);
+    result_exp->tac->c = mk_const((int) offset, SYM_VAL_SIZE);
     return result_exp;
 }
 
@@ -926,7 +1010,7 @@ SYM *mk_text(const char *text) {
     sym->type = SYM_TEXT;
     sym->name = strdup(text);
     sym->value_type = SYM_VAL_TEXT;
-    sym->value_size = get_size_of_type(SYM_VAL_TEXT);
+    sym->value_size = get_size_of_type(SYM_VAL_TEXT, -1);
     sym->label = next_label++;
 
     // insert_sym(&sym_tab_global, sym);
@@ -950,7 +1034,7 @@ SYM *mk_const(const int n, const int type) {
     sym->type = SYM_CONST;
     sym->value = n;
     sym->value_type = type;
-    sym->value_size = get_size_of_type(type);
+    sym->value_size = get_size_of_type(type, -1);
     sym->name = strdup(name);
     // insert_sym(&sym_tab_global, sym);
 
@@ -1206,7 +1290,7 @@ void print_structs(FILE *f) {
     fprintf(f, "\n");
 }
 
-int get_size_of_type(const int type) {
+int get_size_of_type(const int type, const int default_val) {
 #ifndef NEW_ASM
     return 4;
 #endif
@@ -1218,6 +1302,21 @@ int get_size_of_type(const int type) {
         case SYM_VAL_INT:
             return INT_SIZE;
         default:
-            return -1;
+            return default_val;
     }
+}
+
+bool is_pointer(const SYM *sym) {
+    if (!sym || !sym->indirection)
+        return false;
+    const int indirection = sym->dim_size ? sym->indirection - sym->dim_size->level - 1 : sym->indirection;
+    return indirection > 0;
+}
+
+bool is_array(const SYM *sym) {
+    if (!sym || !sym->indirection)
+        return false;
+    if (is_pointer(sym))
+        return false;
+    return sym->dim_size != NULL;
 }

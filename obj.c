@@ -13,25 +13,26 @@ int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
 
 #ifdef NEW_ASM
+// 这里使用value_type是为了正确读写数组
 #define STO(VALUE, REG_DESC, ...)\
     do {\
-        if ((VALUE)->value_type == SYM_VAL_CHAR) {\
+        if ((VALUE)->value_type == SYM_VAL_CHAR && !is_pointer(VALUE) && !is_array(VALUE) || (VALUE)->value_size == CHAR_SIZE) {\
             out_str(file_s, "\tSTC " REG_DESC "\n", __VA_ARGS__);\
-        } else if ((VALUE)->value_type == SYM_VAL_INT) {\
+        } else if ((VALUE)->value_type == SYM_VAL_INT || is_pointer(VALUE) || is_array(VALUE) || (VALUE)->value_size == INT_SIZE) {\
             out_str(file_s, "\tSTO " REG_DESC "\n", __VA_ARGS__);\
         } else {\
-            error("unexpect value type");\
+            error("unexpect value type %d\n", (VALUE)->value_type);\
         }\
     } while (0)
 
 #define LOD(VALUE, REG_DESC, ...)\
     do {\
-        if ((VALUE)->value_type == SYM_VAL_CHAR) {\
+        if ((VALUE)->value_type == SYM_VAL_CHAR && !is_pointer(VALUE) && !is_array(VALUE)) {\
             out_str(file_s, "\tLDC " REG_DESC "\n", __VA_ARGS__);\
-        } else if ((VALUE)->value_type == SYM_VAL_INT) {\
+        } else if ((VALUE)->value_type == SYM_VAL_INT || is_pointer(VALUE) || is_array(VALUE)) {\
             out_str(file_s, "\tLOD " REG_DESC "\n", __VA_ARGS__);\
         } else {\
-            error("unexpect value type %d", (VALUE)->value_type);\
+            error("unexpect value type %d\n", (VALUE)->value_type);\
         }\
     } while (0)
 #else
@@ -491,8 +492,8 @@ static void asm_store(SYM* a, SYM* b, SYM *c)
             reg_b = reg_alloc(b);
         }
         // 然后我们计算*(a+c)=b
-        if (c==NULL) STO(a, "(R%u), R%u", reg_a, reg_b);
-        else STO(a, "(R%u%+d), R%u", reg_a, c->value, reg_b);
+        if (c==NULL) STO(b, "(R%u), R%u", reg_a, reg_b);
+        else STO(b, "(R%u%+d), R%u", reg_a, c->value, reg_b);
     } else {
         int reg_c = reg_alloc(c);
         while (reg_a == reg_c) {
@@ -505,7 +506,7 @@ static void asm_store(SYM* a, SYM* b, SYM *c)
             reg_a = reg_alloc(a);
             reg_c = reg_alloc(b);
         }
-        STO(a, "(R%u), R%u", reg_a, reg_c);
+        STO(b, "(R%u), R%u", reg_a, reg_c);
     }
     rdesc_fill(reg_a, a, UNMODIFIED);
 }
@@ -514,6 +515,7 @@ static void asm_code(const TAC* c)
 {
     int r;
     SYM* cb = c->b,* cc = c->c;
+    int offset;
 
     switch (c->op)
     {
@@ -668,7 +670,11 @@ static void asm_code(const TAC* c)
         case TAC_FORMAL:
             c->a->scope = 1; /* parameter is special local var */
             c->a->offset = oof;
-            oof -= c->a->value_size;
+            offset = is_pointer(c->a) ? POINTER_SIZE : c->a->value_size;
+            if (offset % POINTER_SIZE) {
+                offset += POINTER_SIZE - offset % POINTER_SIZE;
+            }
+            oof -= offset;
             return;
 
         case TAC_VAR:
@@ -676,12 +682,20 @@ static void asm_code(const TAC* c)
             {
                 c->a->scope = 1; /* local var */
                 c->a->offset = tof;
-                tof += c->a->value_size;
+                offset = is_pointer(c->a) ? POINTER_SIZE : c->a->value_size;
+                if (offset % POINTER_SIZE) {
+                    offset += POINTER_SIZE - offset % POINTER_SIZE;
+                }
+                tof += offset;
             } else
             {
                 c->a->scope = 0; /* global var */
                 c->a->offset = tos;
-                tos += c->a->value_size;
+                offset = is_pointer(c->a) ? POINTER_SIZE : c->a->value_size;
+                if (offset % POINTER_SIZE) {
+                    offset += POINTER_SIZE - offset % POINTER_SIZE;
+                }
+                tos += offset;
             }
             return;
 

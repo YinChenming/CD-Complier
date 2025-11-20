@@ -43,9 +43,9 @@
 #define TAC_GE 10 /* a=(b>=c) */
 #define TAC_NEG 11 /* a=-b */
 #define TAC_ADDR 12 /* a=&b */
-#define TAC_DEREF 13 /* a=*b */
+#define TAC_DEREF 13 /* a=*b or a=b[c] */
 
-#define TAC_STORE 20 /* *a=b */
+#define TAC_STORE 20 /* *a=b or a[c]=b */
 #define TAC_COPY 21 /* a=b */
 #define TAC_GOTO 22 /* goto a */
 #define TAC_IFZ 23 /* ifz b goto a */
@@ -229,9 +229,13 @@ void print_structs(FILE *f);
 
 void clear_local_hash(void);
 
-int get_size_of_type(int type);
+bool is_pointer(const SYM *sym);
 
-#define get_size_of_type_or_pointer(TYPE, IS_POINTER) (!(IS_POINTER) ? get_size_of_type(TYPE) : POINTER_SIZE)
+bool is_array(const SYM *sym);
+
+int get_size_of_type(int type, int default_val);
+
+#define get_size_of_type_or_pointer(TYPE, DEFAULT_VAL, IS_POINTER) (!(IS_POINTER) ? get_size_of_type(TYPE, DEFAULT_VAL) : POINTER_SIZE)
 
 void error(const char *format, ...);
 

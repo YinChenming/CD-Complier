@@ -45,4 +45,18 @@ new: mini $(NEW_ASM_DIR)/asm.l $(NEW_ASM_DIR)/asm.y $(NEW_ASM_DIR)/machine.c $(N
 	$(CC) $(CFLAGS) -I$(NEW_ASM_NAME) $(NEW_ASM_DIR)/machine.c -o machine
 
 
-.PHONY: clean all $(TARGETS) test new w
+testall:
+	@for f in ./testcase/*.m; do \
+		if [ -f "$$f" ]; then \
+			name=$$(basename "$$f" .m); \
+			echo "test $$name"; \
+			if $(MAKE) test t="./testcase/$$name"; then \
+				echo "success"; \
+			else \
+				echo "failed"; \
+			fi; \
+		fi \
+	done
+
+
+.PHONY: clean all $(TARGETS) test new w testall

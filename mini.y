@@ -90,7 +90,7 @@ int hex2char(char* str, int len)
         {
             sym = p->a;
             sym->value_type = SYM_VAL_CHAR;
-            int new_size = get_size_of_type(SYM_VAL_CHAR);
+            int new_size = get_size_of_type(SYM_VAL_CHAR, -1);
             if (sym->dim_size) {
                 if (sym->indirection - sym->dim_size->level > 1) {
                     new_size = POINTER_SIZE;
@@ -98,7 +98,7 @@ int hex2char(char* str, int len)
             } else if (sym->indirection > 0) {
                 new_size = POINTER_SIZE;
             }
-            sym->value_size = sym->value_size / get_size_of_type(SYM_VAL_DEFAULT) * new_size;
+            sym->value_size = sym->value_size / get_size_of_type(SYM_VAL_DEFAULT, -1) * new_size;
             p = p->prev;
         }
     }
@@ -233,13 +233,13 @@ int hex2char(char* str, int len)
     | INT variable
     {
         $2->value_type = SYM_VAL_INT;
-        $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_INT);
+        $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_INT, -1);
         $$=declare_para($2);
     }
     | CHAR variable
     {
         $2->value_type = SYM_VAL_CHAR;
-        $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_CHAR);
+        $2->value_size = $2->indirection ? POINTER_SIZE : get_size_of_type(SYM_VAL_CHAR, -1);
         $$=declare_para($2);
     }
     ;
@@ -305,6 +305,16 @@ int hex2char(char* str, int len)
     }
     | store_assignment_statement
     | array_expression '=' expression
+    {
+        // array_expression必然返回一个Expression,其中$1->tac为{.op=TAC_DEREF,.a=$1->ret,.b=b,.c=c},构成$1->ret=b[c]
+        // 我们只需要将其重新排列即可得到正确的TAC_STORE: 丢弃$1->ret,令{.op=TAC_STORE, .a=$1->b, .b=expression, .c=c}即可构成b[c]=expression
+        $$=$1->tac;
+        $$->a = $$->b;
+        $$->b = $3->ret;
+        join_tac($3->tac, $$);
+        $$->op = TAC_STORE;
+    }
+    | struct_expression '=' expression
     {
         // array_expression必然返回一个Expression,其中$1->tac为{.op=TAC_DEREF,.a=$1->ret,.b=b,.c=c},构成$1->ret=b[c]
         // 我们只需要将其重新排列即可得到正确的TAC_STORE: 丢弃$1->ret,令{.op=TAC_STORE, .a=$1->b, .b=expression, .c=c}即可构成b[c]=expression
@@ -426,7 +436,7 @@ int hex2char(char* str, int len)
     {
         $$=do_un(TAC_DEREF, $2);
     }
-    | '&' primary_expression
+    | '&' postfix_expression
     {
         // 不允许对右值取地址!
         $$=do_un(TAC_ADDR, $2);
@@ -586,6 +596,7 @@ int hex2char(char* str, int len)
     struct_expression: postfix_expression '.' IDENTIFIER
     {
         $$=do_get_member($1, $3);
+        // $$=do_pointer_get_member($1, $3);
     }
     | postfix_expression RIGHT_ARROW IDENTIFIER
     {
