@@ -1,25 +1,21 @@
-#ifndef OPT_HH
-#define OPT_HH
+#ifndef CONTROL_FLOW_GRAPH_H
+#define CONTROL_FLOW_GRAPH_H
 
-#include <utility>
 #include <vector>
-#include <memory>
 #include <string>
-#include <map>
+#include <memory>
 #include <filesystem>
-
+#include <map>
 
 #ifdef __cplusplus
-extern "C"{
+extern "C" {
 #endif
-
 #include "tac.h"
-
 #ifdef __cplusplus
 }
 #endif
 
-namespace opt{
+namespace cfg{
 template<typename Node>
 class AbstractCFG{
 public:
@@ -54,7 +50,7 @@ public:
     [[nodiscard]] bool opt_common_subexpression_elimination() const;
 };
 class FunctionCFG;
-class CFG: public AbstractCFG<FunctionCFG>
+class CFG
 {
     std::map<std::string, std::unique_ptr<FunctionCFG>> functions_;
     std::vector<SYM *> global_vars_;
@@ -63,7 +59,6 @@ public:
     explicit CFG(const TAC *tac) {
         init(tac);
     }
-    ~CFG() override = default;
     [[nodiscard]] std::string global_vars_to_dot() const;
     void to_dot(const std::filesystem::path &path) const;
     [[nodiscard]] std::vector<std::string> to_dot() const;
@@ -99,4 +94,4 @@ public:
 
 }
 
-#endif  // OPT_HH
+#endif  // CONTROL_FLOW_GRAPH_H
