@@ -2,6 +2,7 @@
 
 #include <stdexcept>    // for std::runtime_error
 #include <set>
+#include <list>
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
@@ -404,11 +405,59 @@ bool BasicBlock::opt_constants_folding() const {
     return optimized;
 }
 
+bool CFG::opt_common_subexpresson_elimination() const {
+    bool result = false;
+    for (const auto &fcfg: functions_) {
+        result |= fcfg.second->opt_common_subexpression_elimination();
+    }
+    return result;
+}
+bool FunctionCFG::opt_common_subexpression_elimination() const {
+    bool result = false;
+    for (const auto &bb: blocks_) {
+        result |= bb->opt_common_subexpression_elimination();
+    }
+    return result;
+}
+bool BasicBlock::opt_common_subexpression_elimination() const {
+    bool result = false;
+    auto is_same_tac = [] (const TAC *t1, const TAC *t2) -> bool{
+        return t1->op == t2->op && t1->b == t2->b && t1->c == t2->c;
+    };
+    std::list<TAC *> assignments;
+    for (TAC *tac = begin_; tac != end_; tac = tac->next) {
+        if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC) {
+            bool flag = true;
+            for (const auto &assignment: assignments) {
+                if (is_same_tac(static_cast<TAC*>(assignment), tac)) {
+                    tac->op = TAC_COPY;
+                    tac->b = assignment->a;
+                    tac->c = nullptr;
+                    flag = false;
+                    result = true;
+                    break;
+                }
+            }
+            if (flag) {
+                assignments.push_back(tac);
+            }
+        }
+        if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC || tac->op == TAC_COPY) {
+            // tac->a被修改
+            assignments.remove_if([&] (const TAC *t) -> bool {
+                return (t->b == tac->a || t->c == tac->a);
+            });
+        }
+    }
+    return result;
+}
+
 EXTERNC
 int run_local_optimization(CFG *cfg){
     if (!cfg) return 0;
     int opt_count = 0;
     if (cfg->opt_constants_folding()) opt_count++;
+    if (cfg->opt_common_subexpresson_elimination()) opt_count++;
     return opt_count;
 }
 EXTERNC
