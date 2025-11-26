@@ -14,3 +14,9 @@ dot/
 *.png
 case/
 testcase/
+
+
+# for Mac OS
+.DS_Store
+*.dSYM
+*.dSYM/

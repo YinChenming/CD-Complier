@@ -5,7 +5,6 @@
 #include <list>
 #include <fstream>
 #include <sstream>
-#include <unordered_map>
 
 using namespace cfg;
 
@@ -167,13 +166,13 @@ std::string FunctionCFG::block2dot(BasicBlock *block) {
     size_t size = 0;
     FILE *mem_file = open_memstream(&buffer, &size);
     int i = 1;
-    for (auto ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
+    for (auto ptac=block->begin_; ptac && ptac.get()!=block->end_.get(); ptac=ptac->next) {
         fprintf(mem_file, "(%d) ", i++);
-        out_tac(mem_file, ptac);
+        out_tac(mem_file, ptac.get());
         fprintf(mem_file, "\\l");
     }
     fprintf(mem_file, "(%d) ", i);
-    out_tac(mem_file, block->end_);
+    out_tac(mem_file, block->end_.get());
     fprintf(mem_file, "\\l");
 
     // 不能在close之前读取buffer!!!
@@ -237,7 +236,7 @@ std::string FunctionCFG::to_dot() const {
 
         // --- 检查 fallthrough_ ---
         if (block->fallthrough_) {
-            TAC *end_tac = block->end_;
+            auto &end_tac = block->end_;
             std::string edge_label = "Fall-Through";
             std::string color = "black";
 
@@ -319,7 +318,7 @@ bool FunctionCFG::opt_constants_folding() const {
 }
 bool BasicBlock::opt_constants_folding() const {
     bool optimized = false;
-    for (TAC *t = begin_; t != end_->next; t = t->next) {
+    for (auto t = begin_; t != end_->next; t = t->next) {
         if (t->op >= TAC_MIN_CALC && t->op <= TAC_MAX_CALC) {
             if (t->b->type == SYM_INT && t->c->type == SYM_INT) {
                 const int val_a = t->b->value, val_b = t->c->value;
@@ -390,11 +389,11 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
         return t1->op == t2->op && t1->b == t2->b && t1->c == t2->c;
     };
     std::list<TAC *> assignments;
-    for (TAC *tac = begin_; tac != end_; tac = tac->next) {
+    for (auto tac = begin_; tac.get() != end_.get(); tac = tac->next) {
         if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC) {
             bool flag = true;
             for (const auto &assignment: assignments) {
-                if (is_same_tac(static_cast<TAC*>(assignment), tac)) {
+                if (is_same_tac(static_cast<TAC*>(assignment), tac.get())) {
                     tac->op = TAC_COPY;
                     tac->b = assignment->a;
                     tac->c = nullptr;
@@ -404,10 +403,10 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
                 }
             }
             if (flag) {
-                assignments.push_back(tac);
+                assignments.push_back(tac.get());
             }
         }
-        if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC || tac->op == TAC_COPY) {
+        if ((tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC)|| tac->op == TAC_COPY) {
             // tac->a被修改
             assignments.remove_if([&] (const TAC *t) -> bool {
                 return (t->b == tac->a || t->c == tac->a);

@@ -9,7 +9,7 @@ TARGETS = mini asm machine
 
 all: $(TARGETS)
 
-mini: $(OUT_DIR)/main.o $(OUT_DIR)/mini.l.o $(OUT_DIR)/mini.y.o $(OUT_DIR)/tac.o tac.h $(OUT_DIR)/obj.o $(OUT_DIR)/opt.o $(OUT_DIR)/cfg.o | $(OUT_DIR)
+mini: $(OUT_DIR)/main.o $(OUT_DIR)/mini.l.o $(OUT_DIR)/mini.y.o $(OUT_DIR)/tac.o $(OUT_DIR)/obj.o $(OUT_DIR)/opt.o $(OUT_DIR)/cfg.o $(OUT_DIR)/df.o | $(OUT_DIR)
 # 	lex -o $(OUT_DIR)/mini.l.c mini.l
 # 	yacc -d -o $(OUT_DIR)/mini.y.c mini.y
 # 	$(CC) $(CFLAGS) main.c $(OUT_DIR)/mini.l.c $(OUT_DIR)/mini.y.c tac.c obj.c -o $@
@@ -24,7 +24,7 @@ machine: machine.c opcode.h | $(OUT_DIR)
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUT_DIR):
-	@mkdir $(OUT_DIR) -v -p
+	@mkdir $(OUT_DIR)
 
 $(OUT_DIR)/%.o: %.c | $(OUT_DIR)
 	$(CC) $(CFLAGS) $< -c -o $@

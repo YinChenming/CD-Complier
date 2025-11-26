@@ -9,6 +9,7 @@
 // mini.y.h must be at the la
 #include "mini.y.h"
 
+int yyparse();
 FILE *file_x, *file_s;
 
 void error(const char *format, ...) {
