@@ -118,7 +118,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
 
     for (size_t i = 0; i < blocks_.size(); ++i) {
         BasicBlock *block = blocks_[i].get();
-        const TAC *block_end = block->end_;
+        const auto block_end = block->end_;
 
         if (!block_end) continue;
 
@@ -167,7 +167,7 @@ std::string FunctionCFG::block2dot(BasicBlock *block) {
     size_t size = 0;
     FILE *mem_file = open_memstream(&buffer, &size);
     int i = 1;
-    for (TAC *ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
+    for (auto ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
         fprintf(mem_file, "(%d) ", i++);
         out_tac(mem_file, ptac);
         fprintf(mem_file, "\\l");

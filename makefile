@@ -48,8 +48,8 @@ $(OUT_DIR)/main.o: $(OUT_DIR)/mini.y.h
 
 test: $(t).m
 	@$(MAKE) clean_dot
-	@./mini $(t).m
-	@$(MAKE) dot; \
+	./mini $(t).m
+	$(MAKE) dot; \
 	./asm $(t).s; \
 	./machine $(t).o
 
