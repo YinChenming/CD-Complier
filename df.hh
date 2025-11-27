@@ -10,9 +10,10 @@ namespace df {
     using namespace cfg;
     template<typename Container>
     class DataflowResult {
+    public:
         using Node = typename Container::key_type;
         using Fact = typename Container::mapped_type;
-
+    private:
         Container in_facts_{}, out_facts_{};
 
     public:
@@ -20,9 +21,9 @@ namespace df {
         DataflowResult(const DataflowResult &df) : in_facts_(df.in_facts_), out_facts_(df.out_facts_) {}
         virtual ~DataflowResult() = default;
         [[nodiscard]] virtual Fact &get_in_fact(const Node &node) { return in_facts_[node]; }
-        virtual void set_in_fact(const Node &node, Fact &fact) { in_facts_[node] = fact; }
+        virtual void set_in_fact(const Node &node, const Fact &fact) { in_facts_[node] = fact; }
         [[nodiscard]] virtual Fact &get_out_fact(const Node &node) { return out_facts_[node]; }
-        virtual void set_out_fact(const Node &node, Fact &fact) { out_facts_[node] = fact; }
+        virtual void set_out_fact(const Node &node, const Fact &fact) { out_facts_[node] = fact; }
         DataflowResult &operator=(const DataflowResult &df_result) = default;
         virtual bool operator==(const DataflowResult &df_result) {
             return in_facts_ == df_result.in_facts_ && out_facts_ == df_result.out_facts_;
@@ -38,73 +39,76 @@ namespace df {
     class DataflowAnalysis {
     public:
         virtual ~DataflowAnalysis() = default;
-        [[nodiscard]] virtual bool isForward() const = 0;
-        virtual std::unique_ptr<Fact> new_boundary_fact(const AbstractCFG<Node> &) const = 0;
-        virtual std::unique_ptr<Fact> new_initial_fact() const = 0;
-        virtual void meet(Fact &, Fact &) const = 0;
-        virtual bool transfer_node(const Node &, Fact &in_fact, Fact &out_fact) const = 0;
+        [[nodiscard]] virtual bool is_forward() const { return true; }
+        [[nodiscard]] virtual std::unique_ptr<Fact> new_boundary_fact(const AbstractCFG<Node> &cfg) = 0;
+        [[nodiscard]] virtual std::unique_ptr<Fact> new_initial_fact() const = 0;
+        virtual void meet(const Fact &facts, Fact &result) const = 0;
+        [[nodiscard]] virtual bool transfer_node(const Node &, Fact &in_fact, Fact &out_fact) = 0;
         DataflowAnalysis &operator=(const DataflowAnalysis &) = default;
     };
     template<typename ResultContainer>
     class Solver {
-        using Node = typename ResultContainer::key_type;
-        using Fact = typename ResultContainer::mapped_type;
-        DataflowAnalysis<Node, Fact> analysis_{};
+    public:
+        using Node = typename ResultContainer::Node;
+        using Fact = typename ResultContainer::Fact;
+    private:
+        DataflowAnalysis<Node, Fact> &analysis_;
 
     public:
-        Solver() = default;
-        explicit Solver(const DataflowAnalysis<Node, Fact> &df) : analysis_(df) {}
+        explicit Solver(DataflowAnalysis<Node, Fact> &df) : analysis_(df) {}
         Solver(const Solver &solver) : analysis_(solver.analysis_) {}
         virtual ~Solver() = default;
 
-        [[nodiscard]] std::unique_ptr<DataflowResult<ResultContainer>> solve(AbstractCFG<Node> &cfg) {
+        [[nodiscard]] std::unique_ptr<ResultContainer> solve(const AbstractCFG<Node> &cfg) {
             auto result = initialize(cfg);
             doSolve(cfg, *result);
             return result;
         }
 
     private:
-        [[nodiscard]] std::unique_ptr<DataflowResult<ResultContainer>> initialize(AbstractCFG<Node> &cfg) {
-            auto result = std::make_unique<DataflowResult<ResultContainer>>();
-            if (analysis_.isForward()) {
-                return initializeForward(cfg, *result);
+        [[nodiscard]] std::unique_ptr<ResultContainer> initialize(const AbstractCFG<Node> &cfg) {
+            auto result = std::make_unique<ResultContainer>();
+            if (analysis_.is_forward()) {
+                initializeForward(cfg, *result);
+                return result;
             } else {
-                return initializeBackward(cfg, *result);
+                initializeBackward(cfg, *result);
+                return result;
             }
         }
-        virtual void initializeForward(AbstractCFG<Node> &cfg, DataflowResult<ResultContainer> &df) {
+        virtual void initializeForward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             for (const Node *node: cfg.nodes()) {
                 if (!cfg.is_entry(*node)) {
-                    df.set_out_fact(*node, analysis_.new_boundary_fact(*node));
+                    df.set_out_fact(*node, std::move(*analysis_.new_initial_fact()));
                 } else {
-                    df.set_out_fact(*node, analysis_.new_initial_fact());
+                    df.set_out_fact(*node, std::move(*analysis_.new_boundary_fact(cfg)));
                 }
-                df.set_in_fact(*node, analysis_.new_initial_fact());
+                df.set_in_fact(*node, std::move(*analysis_.new_initial_fact()));
             }
         }
-        virtual void initializeBackward(AbstractCFG<Node> &cfg, DataflowResult<ResultContainer> &df) {
+        virtual void initializeBackward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             for (const Node *node: cfg.nodes()) {
                 if (!cfg.is_exit(*node)) {
-                    df.set_in_fact(*node, analysis_.new_initial_fact());
+                    df.set_in_fact(*node, std::move(*analysis_.new_initial_fact()));
                 } else {
-                    df.set_in_fact(*node, analysis_.new_boundary_fact(*node));
+                    df.set_in_fact(*node, std::move(*analysis_.new_boundary_fact(cfg)));
                 }
-                df.set_out_fact(*node, analysis_.new_initial_fact());
+                df.set_out_fact(*node, std::move(*analysis_.new_initial_fact()));
             }
         }
-        void doSolve(AbstractCFG<Node> &cfg, DataflowResult<ResultContainer> &df) {
-            if (analysis_.isForward()) {
+        void doSolve(const AbstractCFG<Node> &cfg, ResultContainer &df) {
+            if (analysis_.is_forward()) {
                 solveForward(cfg, df);
             } else {
                 solveBackward(cfg, df);
             }
         }
-        virtual void solveForward(AbstractCFG<Node> &cfg, DataflowResult<ResultContainer> &df) const {
+        virtual void solveForward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             bool changed;
             do {
                 changed = false;
                 for (const Node *node: cfg.nodes()) {
-                    Fact in_fact = analysis_.new_initial_fact();
+                    Fact in_fact = std::move(*analysis_.new_initial_fact());
                     for (auto &child: cfg.precursors(*node)) {
                         analysis_.meet(df.get_out_fact(*child), in_fact);
                     }
@@ -117,12 +121,12 @@ namespace df {
                 }
             } while (changed);
         }
-        virtual void solveBackward(AbstractCFG<Node> &cfg, DataflowResult<ResultContainer> &df) const {
+        virtual void solveBackward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             bool changed;
             do {
                 changed = false;
                 for (const Node *node: cfg.nodes()) {
-                    Fact out_fact = analysis_.new_initial_fact();
+                    Fact out_fact = std::move(*analysis_.new_initial_fact());
                     for (auto &child: cfg.successors(*node)) {
                         analysis_.meet(df.get_in_fact(*child), out_fact);
                     }
@@ -140,7 +144,10 @@ namespace df {
     // Abstract Facts
     template<typename Container>
     class FactContainer {
+    public:
+        using container_type = Container;
         using Fact = typename Container::key_type;
+    private:
         Container facts_{};
 
     public:
@@ -149,11 +156,7 @@ namespace df {
         FactContainer(const FactContainer &facts) : facts_(facts.facts_) {}
         bool operator==(const FactContainer &facts) const { return facts_ == facts.facts_; }
         bool operator!=(const FactContainer &facts) const { return facts_ != facts.facts_; }
-        FactContainer &operator=(const FactContainer &facts) {
-            facts_.clear();
-            facts_.insert(facts.facts_.begin(), facts.facts_.end());
-            return *this;
-        }
+        FactContainer &operator=(const FactContainer &facts) = default;
         FactContainer operator|(const FactContainer &facts) const {
             Container result(facts_);
             result.insert(facts.facts_.begin(), facts.facts_.end());
@@ -190,8 +193,19 @@ namespace df {
             remove(fact);
             return *this;
         }
+
         bool add(const Fact &fact) { return facts_.emplace(fact).second; }
         bool remove(const Fact &fact) { return facts_.erase(fact); }
+        void union_(FactContainer &facts) {
+            facts_.insert(facts.facts_.begin(), facts.facts_.end());
+        }
+        void intersect(const FactContainer &facts) {
+            for (auto it = facts_.begin(); it != facts_.end();) {
+                if (!facts.facts_.count(*it)) {
+                    it = facts_.erase(it);
+                }
+            }
+        }
         void clear() { facts_.clear(); }
         FactContainer copy() const { return {facts_}; }
         auto begin() -> decltype(facts_.begin()) { return facts_.begin(); }

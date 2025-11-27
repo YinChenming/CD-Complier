@@ -6,8 +6,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-// ReSharper disable once CppUnusedIncludeDirective
-#include <cstring>
 
 extern "C" {
 #include "tac.h"
@@ -41,9 +39,9 @@ namespace cfg {
     public:
         TacProxy() = default;
         // 强兼struct tac*,支持隐式转成代理类
-        // ReSharper disable once CppNonExplicitConvertingConstructor
-        TacProxy(TAC *tac) : tac_(tac) { init_(); } // NOLINT(*-explicit-constructor)
+        explicit TacProxy(TAC *tac) : tac_(tac) { init_(); }
         TAC *operator->() const { return tac_; }
+        TAC &operator*() const { return *tac_; }
         bool operator<(const TAC *tac) const {
             if (!tac_ && !tac)
                 return false;
@@ -67,7 +65,9 @@ namespace cfg {
             }
             return false;
         }
+        bool operator<(const TacProxy &tac) const { return operator<(tac.tac_); }
         bool operator>=(const TAC *tac) const { return !(*this < tac); }
+        bool operator>=(const TacProxy &tac) const { return operator>=(tac.tac_); }
         bool operator==(const TAC *tac) const {
             if (!tac_ && !tac)
                 return true;
@@ -83,12 +83,20 @@ namespace cfg {
                 return false;
             return true;
         }
+        bool operator==(const TacProxy &tac) const { return operator==(tac.tac_); }
         bool operator!=(const TAC *tac) const { return !(*this == tac); }
+        bool operator!=(const TacProxy &tac) const { return operator!=(tac.tac_); }
         bool operator<=(const TAC *tac) const { return *this == tac || *this < tac; }
+        bool operator<=(const TacProxy &tac) const { return operator<=(tac.tac_); }
         bool operator>(const TAC *tac) const { return !(*this <= tac); }
+        bool operator>(const TacProxy &tac) const { return operator>(tac.tac_); }
         explicit operator bool() const { return tac_; }
         // 强兼struct tac*,可以隐式将代理类转回struct tac*
         explicit operator TAC *() const { return tac_; }
+        const TacProxy &operator=(TAC *tac) {
+            tac_ = tac;
+            return *this;
+        }
         [[nodiscard]] bool is_computable() const {
             if (!tac_)
                 return false;
@@ -115,19 +123,41 @@ namespace cfg {
                 return false;
             return tac_->c && tac_->b && tac_->a;
         }
+        [[nodiscard]] bool is_definition() const {
+            return tac_ && tac_->op == TAC_VAR;
+        }
         [[nodiscard]] bool has_side_effect() const {
-            if (!tac_)
+            if (!tac_ || !tac_->a)
                 return false;
-            if (tac_->op == TAC_COPY)
-                return true;
-            if (tac_->op == TAC_INPUT)
-                return true;
-            if (is_computable())
-                return true;
+            if (tac_->op == TAC_VAR) return true;
+            if (tac_->op == TAC_COPY) return true;
+            if (tac_->op == TAC_INPUT) return true;
+            if (is_computable()) return true;
+            return false;
+        }
+        [[nodiscard]] bool use_a() const {
+            if (!tac_ || !tac_->a) return false;
+            if (tac_->op == TAC_OUTPUT) return true;
+            return false;
+        }
+        [[nodiscard]] bool use_b() const {
+            if (!tac_ || !tac_->b) return false;
+            if (tac_->op >= TAC_MIN_CALC && tac_->op <= TAC_MAX_CALC) return true;
+            if (tac_->op == TAC_COPY) return true;
+            if (tac_->op == TAC_OUTPUT) return true;
+            if (tac_->op == TAC_FORMAL) return true;
+            if (tac_->op == TAC_RETURN) return true;
+            if (tac_->op == TAC_IFZ) return true;
+            return false;
+        }
+        [[nodiscard]] bool use_c() const {
+            if (!tac_ || !tac_->c) return false;
+            if (tac_->op >= TAC_MIN_CALC && tac_->op < TAC_MAX_CALC) return true;
             return false;
         }
         [[nodiscard]] TAC *get() const { return tac_; }
         void set(TAC *tac) { tac_ = tac; }
+        std::string to_string() const;
 
         struct Hash {
             size_t operator()(const TacProxy &tac) const {
@@ -153,9 +183,7 @@ namespace cfg {
 
     public:
         SymProxy() = default;
-        // no explicit
-        // ReSharper disable once CppNonExplicitConvertingConstructor
-        SymProxy(SYM *sym) : sym_(sym), name_(sym && sym->name ? sym->name : ""), has_set_name_(sym != nullptr) {} // NOLINT(*-explicit-constructor)
+        explicit SymProxy(SYM *sym) : sym_(sym), name_(sym && sym->name ? sym->name : ""), has_set_name_(sym != nullptr) {}
         SYM *operator->() const { return sym_; }
         bool operator==(const SYM *sym) const {
             if (sym_ == sym)
@@ -164,6 +192,7 @@ namespace cfg {
                 return false;
             return sym_->type == sym->type && strcmp(sym_->name, sym->name) == 0;
         }
+        bool operator==(const SymProxy &sym) const { return operator==(sym.sym_); }
         bool operator!=(const SYM *sym) const {
             if (sym_ == sym)
                 return false;
@@ -171,6 +200,7 @@ namespace cfg {
                 return false;
             return sym_->type != sym->type || strcmp(sym_->name, sym->name) != 0;
         }
+        bool operator!=(const SymProxy &sym) const { return operator!=(sym.sym_); }
         bool operator<(const SYM *sym) const {
             if (!sym_ && !sym)
                 return false;
@@ -180,6 +210,7 @@ namespace cfg {
                 return false;
             return strcmp(sym_->name, sym->name) < 0;
         }
+        bool operator<(const SymProxy &sym) const { return operator<(sym.sym_); }
         bool operator<=(const SYM *sym) const {
             if (!sym_ && !sym)
                 return true;
@@ -189,6 +220,7 @@ namespace cfg {
                 return false;
             return strcmp(sym_->name, sym->name) <= 0;
         }
+        bool operator<=(const SymProxy &sym) const { return operator<=(sym.sym_); }
         bool operator>(const SYM *sym) const {
             if (!sym_ && !sym)
                 return false;
@@ -198,6 +230,7 @@ namespace cfg {
                 return true;
             return strcmp(sym_->name, sym->name) > 0;
         }
+        bool operator>(const SymProxy &sym) const { return operator>(sym.sym_); }
         bool operator>=(const SYM *sym) const {
             if (!sym_ && !sym)
                 return true;
@@ -207,6 +240,7 @@ namespace cfg {
                 return true;
             return strcmp(sym_->name, sym->name) >= 0;
         }
+        bool operator>=(const SymProxy &sym) const { return operator>=(sym.sym_); }
         explicit operator bool() const { return sym_; }
         explicit operator SYM *() const { return sym_; }
 
@@ -223,7 +257,17 @@ namespace cfg {
         [[nodiscard]] const std::string &name() const {
             if (has_set_name_)
                 return name_;
-            return {""};
+            return "";
+        }
+
+        [[nodiscard]] bool is_const() const {
+            return sym_ && (sym_->type != SYM_VAR);
+        }
+        [[nodiscard]] bool is_variable() const {
+            return sym_ && sym_->type == SYM_VAR;
+        }
+        [[nodiscard]] bool is_temporary() const {
+            return sym_ && sym_->name && sym_->name[0] == '$' && sym_->name[1] == 't';
         }
 
         struct Hash {
@@ -239,10 +283,56 @@ namespace cfg {
         int id_ = END_BLOCK_ID;
 
     public:
+        struct TacIterator {
+            TacProxy tac_{nullptr};
+            TacIterator() = default;
+            TacIterator(const TacIterator &) = default;
+            explicit TacIterator(const TacProxy &tac) : tac_(tac) {}
+            explicit TacIterator(TAC *tac) : tac_(tac) {}
+            TAC *operator->() const {
+                if (!tac_) return nullptr;
+                return tac_.operator->();
+            }
+            TacProxy &operator*() {
+                return tac_;
+            }
+            bool operator==(const TAC *tac) const {
+                return tac_ == tac;
+            }
+            bool operator==(const TacProxy &tac) const {
+                return tac_ == tac;
+            }
+            bool operator==(const TacIterator &tac) const {
+                return operator==(tac.tac_);
+            }
+            bool operator!=(const TAC *tac) const {
+                return tac_ != tac;
+            }
+            bool operator!=(const TacProxy &tac) const {
+                return tac_ != tac;
+            }
+            bool operator!=(const TacIterator &tac) const {
+                return !operator==(tac);
+            }
+            const TacIterator &operator++() {
+                if (!tac_) return *this;
+                tac_ = tac_->next;
+                return *this;
+            }
+            TacIterator operator++(int) {
+                const auto tmp = *this;
+                operator++();
+                return tmp;
+            }
+            TAC *get() const {
+                if (!tac_) return nullptr;
+                return tac_.get();
+            }
+        };
         static constexpr int END_BLOCK_ID = 0;
         static constexpr int BEGIN_BLOCK_ID = -1;
-        TacProxy begin_ = nullptr;
-        TacProxy end_ = nullptr;
+        TacProxy begin_{nullptr};
+        TacProxy end_{nullptr};
 
         BasicBlock *fallthrough_ = nullptr, *ifz_ = nullptr;
         std::vector<BasicBlock *> preds_ = {}; // 前驱数组
@@ -252,10 +342,30 @@ namespace cfg {
         explicit BasicBlock(const int id, TAC *begin, TAC *end) : id_(id), begin_(begin), end_(end) {}
         ~BasicBlock() = default;
         [[nodiscard]] int id() const { return id_; }
-        static bool is_beginblock(const BasicBlock &block) { return block.id_ == BEGIN_BLOCK_ID; }
-        static bool is_endblock(const BasicBlock &block) { return block.id_ == END_BLOCK_ID; }
+        bool operator==(const BasicBlock &block) const {
+            return id_ == block.id_;
+        }
+        bool operator!=(const BasicBlock &block) const {
+            return id_ != block.id_;
+        }
+        static bool is_entry(const BasicBlock &block) { return block.id_ == BEGIN_BLOCK_ID; }
+        static bool is_exit(const BasicBlock &block) { return block.id_ == END_BLOCK_ID; }
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
+
+        TacIterator begin() const {
+            return TacIterator(begin_);
+        }
+        TacIterator end() const {
+            if (end_) return TacIterator(end_->next);
+            else return TacIterator();
+        }
+
+        struct Hash {
+            size_t operator()(const BasicBlock &block) const {
+                return std::hash<int>()(block.id_);
+            }
+        };
     };
 
     class FunctionCFG;
@@ -266,6 +376,7 @@ namespace cfg {
 
     public:
         explicit CFG(const TAC *tac) { init(tac); }
+        [[nodiscard]] FunctionCFG *get_function(const std::string &name) const { auto it = functions_.find(name); if (it == functions_.end()) return nullptr; return it->second.get(); }
         [[nodiscard]] std::string global_vars_to_dot() const;
         void to_dot(const std::filesystem::path &path) const;
         [[nodiscard]] std::vector<std::string> to_dot() const;
@@ -333,8 +444,8 @@ namespace cfg {
                 init(tac_start, tac_end);
         }
         // implement AbstractCFG
-        [[nodiscard]] bool is_entry(const BasicBlock &bb) const override { return BasicBlock::is_beginblock(bb); }
-        [[nodiscard]] bool is_exit(const BasicBlock &bb) const override { return BasicBlock::is_endblock(bb); }
+        [[nodiscard]] bool is_entry(const BasicBlock &bb) const override { return BasicBlock::is_entry(bb); }
+        [[nodiscard]] bool is_exit(const BasicBlock &bb) const override { return BasicBlock::is_exit(bb); }
         [[nodiscard]] std::vector<BasicBlock *> nodes() const override {
             std::vector<BasicBlock *> result(blocks_.size());
             for (size_t i = 0; i < blocks_.size(); ++i) {

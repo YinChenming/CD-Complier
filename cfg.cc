@@ -158,6 +158,19 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
 #undef CONNECT
 #undef CONNECT_
 
+std::string TacProxy::to_string() const {
+    if (tac_ == nullptr) return "";
+    char *buffer = nullptr;
+    size_t size = 0;
+    FILE *mem_file = open_memstream(&buffer, &size);
+    out_tac(mem_file, tac_);
+    fclose(mem_file);
+    auto result = std::string(buffer, size);
+    free(buffer);
+    return result;
+}
+
+
 std::string FunctionCFG::block2dot(BasicBlock *block) {
     if (!block->begin_) {
         return "empty block, no TAC!";
@@ -166,7 +179,7 @@ std::string FunctionCFG::block2dot(BasicBlock *block) {
     size_t size = 0;
     FILE *mem_file = open_memstream(&buffer, &size);
     int i = 1;
-    for (auto ptac=block->begin_; ptac && ptac.get()!=block->end_.get(); ptac=ptac->next) {
+    for (auto ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
         fprintf(mem_file, "(%d) ", i++);
         out_tac(mem_file, ptac.get());
         fprintf(mem_file, "\\l");
