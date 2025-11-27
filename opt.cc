@@ -1,6 +1,7 @@
 #include "cfg.hh"
 
 #include <stdexcept>    // for std::runtime_error
+#include <algorithm>
 
 #include "analysis.hh"
 #include "df.hh"
