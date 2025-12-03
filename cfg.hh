@@ -118,6 +118,12 @@ namespace cfg {
         [[nodiscard]] bool is_definition() const {
             return tac_ && tac_->op == TAC_VAR;
         }
+        [[nodiscard]] bool is_assignment() const {
+            return tac_ && tac_->op == TAC_COPY;
+        }
+        [[nodiscard]] bool is_if() const {
+            return tac_ && tac_->op == TAC_IFZ;
+        }
         [[nodiscard]] bool has_side_effect() const {
             if (!tac_ || !tac_->a)
                 return false;
@@ -375,6 +381,7 @@ namespace cfg {
         [[nodiscard]] std::vector<std::string> to_dot() const;
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
+        [[nodiscard]] bool remove_unreachable_blocks() const;
     };
 
     class FunctionCFG : public df::AbstractCFG<BasicBlock> {
@@ -465,6 +472,7 @@ namespace cfg {
         [[nodiscard]] std::pair<TAC *, TAC *> to_tac() const;
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
+        [[nodiscard]] bool remove_unreachable_blocks();
     };
 
 } // namespace cfg

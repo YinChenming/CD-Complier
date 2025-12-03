@@ -23,7 +23,8 @@ static bool opt_dead_code_elimination(const CFG *cfg) {
         LiveVariableSolver solver;
         auto result = *solver.solve(fcfg);
         for (auto &bb: fcfg.blocks_) {
-            LiveVariableFacts facts ( result.get_out_fact(*bb));
+            const LiveVariableFacts &out_fact = result.get_out_fact(*bb);
+            LiveVariableFacts facts ( out_fact);
             for (auto tac = bb->end_; tac && tac->next!=bb->begin_.get(); tac = tac->prev) {
                 if (tac.has_side_effect() && !tac.is_definition()) {
                     const SymProxy a(tac->a);
@@ -61,6 +62,97 @@ static bool opt_dead_code_elimination(const CFG *cfg) {
                     const SymProxy c(tac->c);
                     if (!c.is_const())
                         facts += c;
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+static bool opt_constant_and_copy_propagation(const CFG *cfg) {
+    bool changed = false;
+    auto reaching_definition_to_map = [] (const ReachingDefinitionFacts &facts) -> std::unordered_map<std::string, std::vector<TAC*>> {
+        std::unordered_map<std::string, std::vector<TAC*>> result;
+        for (auto &tac: facts) {
+            result[std::string(tac->a->name)].push_back(tac);
+        }
+        return result;
+    };
+    for (auto &fcfg_kv: cfg->functions_) {
+        FunctionCFG& fcfg = *fcfg_kv.second;
+        ReachingDefinitionSolver solver;
+        auto result = *solver.solve(fcfg);
+        for (auto &bb: fcfg.blocks_) {
+            auto definitions = reaching_definition_to_map(result.get_in_fact(*bb));
+            for (auto &tac: *bb) {
+                if (tac.use_a()) {
+                    const SymProxy a(tac->a);
+                    const auto &defs = definitions.find(a.name());
+                    if (defs != definitions.end() && defs->second.size() == 1) {
+                        if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
+                            const SymProxy another(another_tac->b);
+                            if (another.is_const() || strcmp(tac->a->name, another->name)>0) {
+                                printf("block %d: a replace '%s' to '%s'\n", bb->id(), tac->a->name, another->name);
+                                tac->a = another.get();
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                if (tac.use_b()) {
+                    const SymProxy b(tac->b);
+                    const auto &defs = definitions.find(b.name());
+                    if (defs != definitions.end() && defs->second.size() == 1) {
+                        if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
+                            const SymProxy another(another_tac->b);
+                            if (another.is_const() || strcmp(tac->b->name, another->name)>0) {
+                                printf("block %d: b replace '%s' to '%s'\n", bb->id(), tac->b->name, another->name);
+                                tac->b = another.get();
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                if (tac.use_c()) {
+                    const SymProxy c(tac->c);
+                    const auto &defs = definitions.find(c.name());
+                    if (defs != definitions.end() && defs->second.size() == 1) {
+                        if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
+                            const SymProxy another(another_tac->b);
+                            if (another.is_const() || strcmp(tac->c->name, another->name)>0) {
+                                printf("block %d: c replace '%s' to '%s'\n", bb->id(), tac->c->name, another->name);
+                                tac->c = another.get();
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                if (tac.has_side_effect() && !tac.is_definition()) {
+                    definitions[std::string(tac->a->name)].push_back(tac.get());
+                }
+            }
+            // 对条件跳转结尾优化
+            if (const SymProxy cond(bb->end_->b);bb->end_.is_if() && cond.is_const()) {
+                // fall through
+                if (cond->value && bb->ifz_) {
+                    printf("block %d: always go to fallthrough!\n", bb->id());
+                    BasicBlock &ifz_bb = *bb->ifz_;
+                    changed = true;
+                    ifz_bb.preds_.erase(std::remove(ifz_bb.preds_.begin(), ifz_bb.preds_.end(), bb.get()), ifz_bb.preds_.end());
+                    bb->ifz_ = nullptr;
+                    bb->end_ = bb->end_->prev;
+                } else if (!cond->value && bb->fallthrough_) {
+                    printf("block %d: always go to ifz!\n", bb->id());
+                    BasicBlock &fallthrough_bb = *bb->fallthrough_;
+                    changed = true;
+                    fallthrough_bb.preds_.erase(std::remove(fallthrough_bb.preds_.begin(), fallthrough_bb.preds_.end(), bb.get()), fallthrough_bb.preds_.end());
+                    bb->fallthrough_ = bb->ifz_;
+                    bb->ifz_ = nullptr;
+                    bb->end_->op = TAC_GOTO;
+                    bb->end_->b = NULL;
                 }
             }
         }
@@ -152,6 +244,7 @@ int run_global_optimization(CFG *cfg){
     }
     int opt_count = 0;
     opt_count += opt_dead_code_elimination(cfg);
+    opt_count += opt_constant_and_copy_propagation(cfg);
     return opt_count;
 }
 
@@ -161,5 +254,6 @@ int run_optimization(CFG *cfg){
     int opt_count = 0;
     opt_count += run_local_optimization(cfg);
     opt_count += run_global_optimization(cfg);
+    opt_count += cfg->remove_unreachable_blocks();
     return opt_count;
 }

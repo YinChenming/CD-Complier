@@ -55,7 +55,12 @@ int main(int argc, char *argv[]) {
     tac_init();
     yyparse();
     CFG *cfg = cfg_init(tac_first);
-    run_optimization(cfg);
+    int tmp=10;
+    while (tmp--) {
+        int changed_num = run_optimization(cfg);
+        printf("%d times, optimized %d", 10-tmp, changed_num);
+        if (!changed_num) break;
+    }
     cfg_to_dot(cfg, "dot/");
     cfg_free(cfg);
 

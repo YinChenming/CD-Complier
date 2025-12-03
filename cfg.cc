@@ -109,6 +109,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     // 设置 Entry Block
     if (!blocks_.empty()) {
         begin_block_.fallthrough_ = blocks_.front().get();
+        blocks_.front()->preds_.push_back(&begin_block_);
     } else {
         // 空函数直接退出!!!
         begin_block_.fallthrough_ = &end_block_;
@@ -459,6 +460,37 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
             assignments.remove_if([&] (const TAC *t) -> bool {
                 return (t->b == tac->a || t->c == tac->a);
             });
+        }
+    }
+    return result;
+}
+
+bool CFG::remove_unreachable_blocks() const {
+    bool result = false;
+    for (auto &fcfg_kv: functions_) {
+        result |= fcfg_kv.second->remove_unreachable_blocks();
+    }
+    return result;
+}
+bool FunctionCFG::remove_unreachable_blocks() {
+    bool result = false;
+    auto it = blocks_.begin();
+    while (it != blocks_.end()) {
+        std::unique_ptr<BasicBlock> &bb = *it;
+        if (bb->preds_.empty()) {
+            // unreachable bb!
+            if (bb->fallthrough_) {
+                BasicBlock &child = *bb->fallthrough_;
+                child.preds_.erase(std::remove(child.preds_.begin(), child.preds_.end(), bb.get()), child.preds_.end());
+            }
+            if (bb->ifz_) {
+                BasicBlock &child = *bb->ifz_;
+                child.preds_.erase(std::remove(child.preds_.begin(), child.preds_.end(), bb.get()), child.preds_.end());
+            }
+            blocks_.erase(it);
+            result = true;
+        } else {
+            ++it;
         }
     }
     return result;
