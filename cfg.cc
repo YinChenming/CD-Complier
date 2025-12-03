@@ -315,6 +315,41 @@ std::vector<std::string> CFG::to_dot() const {
     return result;
 }
 
+std::pair<TAC*, TAC*> CFG::to_tac() const {
+    TAC *begin = nullptr, *end = nullptr;
+    for (const auto &func: functions_) {
+        const auto result = func.second->to_tac();
+        if (begin == nullptr || end == nullptr) {
+            begin = mk_tac(TAC_LABEL, mk_label((char*)func.first.c_str()), NULL, NULL);
+            begin->next = mk_tac(TAC_BEGINFUNC, NULL, NULL, NULL);
+            begin->next->prev = begin;
+            begin->next->next = result.first;
+            result.first->prev = begin->next;
+
+            end = result.second;
+            continue;
+        }
+        end->next = result.first;
+        end->next->prev = end;
+        end = result.second;
+    }
+    return {begin, end};
+}
+std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
+    TAC *begin = nullptr, *end = nullptr;
+    for (auto &bb: blocks_) {
+        if (begin == nullptr || end == nullptr) {
+            begin = bb->begin_.get();
+            end = bb->end_.get();
+            continue;
+        }
+        end->next = bb->begin_.get();
+        bb->begin_->prev = end;
+        end = bb->end_.get();
+    }
+    return {begin, end};
+}
+
 bool CFG::opt_constants_folding() const {
     bool optimize = false;
     for (auto const &[key, func]: functions_) {
@@ -382,7 +417,7 @@ bool BasicBlock::opt_constants_folding() const {
     return optimized;
 }
 
-bool CFG::opt_common_subexpresson_elimination() const {
+bool CFG::opt_common_subexpression_elimination() const {
     bool result = false;
     for (const auto &fcfg: functions_) {
         result |= fcfg.second->opt_common_subexpression_elimination();

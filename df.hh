@@ -6,10 +6,19 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "cfg.hh"
-
 namespace df {
-    using namespace cfg;
+    template<typename Node>
+    class AbstractCFG {
+    public:
+        AbstractCFG() = default;
+        virtual ~AbstractCFG() = default;
+        [[nodiscard]] virtual bool is_exit(const Node &) const = 0;
+        [[nodiscard]] virtual bool is_entry(const Node &) const = 0;
+        [[nodiscard]] virtual std::vector<Node *> nodes() const = 0;
+        [[nodiscard]] virtual std::vector<Node *> successors(const Node &) const = 0;
+        [[nodiscard]] virtual std::vector<Node *> precursors(const Node &) const = 0;
+    };
+
     template<typename Container>
     class DataflowResult {
     public:
@@ -198,6 +207,7 @@ namespace df {
 
         bool add(const Fact &fact) { return facts_.emplace(fact).second; }
         bool remove(const Fact &fact) { return facts_.erase(fact); }
+        bool contains(const Fact &fact) const {  return facts_.find(fact) != facts_.end(); }
         void union_(FactContainer &facts) {
             facts_.insert(facts.facts_.begin(), facts.facts_.end());
         }

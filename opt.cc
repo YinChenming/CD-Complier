@@ -16,6 +16,58 @@ using namespace cfg;
 using namespace df;
 using namespace df::analysis;
 
+static bool opt_dead_code_elimination(const CFG *cfg) {
+    bool changed = false;
+    for (auto &fcfg_kv: cfg->functions_) {
+        FunctionCFG& fcfg = *fcfg_kv.second;
+        LiveVariableSolver solver;
+        auto result = *solver.solve(fcfg);
+        for (auto &bb: fcfg.blocks_) {
+            LiveVariableFacts facts ( result.get_out_fact(*bb));
+            for (auto tac = bb->end_; tac && tac->next!=bb->begin_.get(); tac = tac->prev) {
+                if (tac.has_side_effect() && !tac.is_definition()) {
+                    const SymProxy a(tac->a);
+                    if (facts.contains(a)) {
+                        facts -= a;
+                    } else {
+                        // 无用赋值,删除
+                        printf("block %d: delete '%s'\n", bb->id(), tac.to_string().c_str());
+                        if (tac==bb->end_) {
+                            bb->end_ = tac->prev;
+                        } else {
+                            tac->next->prev = tac->prev;
+                        }
+                        if (tac==bb->begin_) {
+                            bb->begin_ = tac->next;
+                        } else {
+                            tac->prev->next = tac->next;
+                        }
+                        changed = true;
+                        continue;
+                    }
+                }
+                if (tac.use_a()) {
+                    const SymProxy a(tac->a);
+                    if (!a.is_const())
+                        facts += a;
+                }
+                if (tac.use_b()) {
+                    // gen b
+                    const SymProxy b(tac->b);
+                    if (!b.is_const())
+                        facts += b;
+                }
+                if (tac.use_c()) {
+                    const SymProxy c(tac->c);
+                    if (!c.is_const())
+                        facts += c;
+                }
+            }
+        }
+    }
+    return changed;
+}
+
 EXTERNC
 CFG *cfg_init(TAC *tac) {
     try{
@@ -27,6 +79,7 @@ CFG *cfg_init(TAC *tac) {
 EXTERNC
 void cfg_free(const CFG *cfg) {
     if (cfg) {
+        tac_first = cfg->to_tac().first;
         try {
             delete cfg;
         } catch (const std::exception &e) {
@@ -50,7 +103,7 @@ int run_local_optimization(CFG *cfg){
     if (!cfg) return 0;
     int opt_count = 0;
     if (cfg->opt_constants_folding()) opt_count++;
-    if (cfg->opt_common_subexpresson_elimination()) opt_count++;
+    if (cfg->opt_common_subexpression_elimination()) opt_count++;
     return opt_count;
 }
 EXTERNC
@@ -59,7 +112,7 @@ int run_global_optimization(CFG *cfg){
     // 运行LiveVariableAnalysis
     auto rv_solver = LiveVariableSolver();
     auto &fcfg = *cfg->get_function("main");
-    auto lv_result = std::move(*rv_solver.solve(fcfg));
+    auto lv_result = *rv_solver.solve(fcfg);
     printf("Live variable analysis results:\n");
     for (const auto &node: fcfg.nodes()) {
         printf("Block %d:\n", node->id());
@@ -97,7 +150,9 @@ int run_global_optimization(CFG *cfg){
         }
         printf("\n");
     }
-    return 1;
+    int opt_count = 0;
+    opt_count += opt_dead_code_elimination(cfg);
+    return opt_count;
 }
 
 EXTERNC

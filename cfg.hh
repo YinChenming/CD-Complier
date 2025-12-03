@@ -8,22 +8,13 @@
 #include <vector>
 #include <cstring>
 
+#include "df.hh"
+
 extern "C" {
 #include "tac.h"
 }
 
 namespace cfg {
-    template<typename Node>
-    class AbstractCFG {
-    public:
-        AbstractCFG() = default;
-        virtual ~AbstractCFG() = default;
-        [[nodiscard]] virtual bool is_exit(const Node &) const = 0;
-        [[nodiscard]] virtual bool is_entry(const Node &) const = 0;
-        [[nodiscard]] virtual std::vector<Node *> nodes() const = 0;
-        [[nodiscard]] virtual std::vector<Node *> successors(const Node &) const = 0;
-        [[nodiscard]] virtual std::vector<Node *> precursors(const Node &) const = 0;
-    };
     // 强兼struct tac类型
     // 应当注意,这里tac_可能为nullptr,nullptr也可能隐式转换成TacProxy对象
     class TacProxy {
@@ -354,12 +345,12 @@ namespace cfg {
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
 
-        TacIterator begin() const {
+        [[nodiscard]] TacIterator begin() const {
             return TacIterator(begin_);
         }
-        TacIterator end() const {
+        [[nodiscard]] TacIterator end() const {
             if (end_) return TacIterator(end_->next);
-            else return TacIterator();
+            else return {};
         }
 
         struct Hash {
@@ -371,21 +362,22 @@ namespace cfg {
 
     class FunctionCFG;
     class CFG {
+    public:
         std::map<std::string, std::unique_ptr<FunctionCFG>> functions_;
         std::vector<SYM *> global_vars_;
         void init(const TAC *tac);
 
-    public:
         explicit CFG(const TAC *tac) { init(tac); }
         [[nodiscard]] FunctionCFG *get_function(const std::string &name) const { auto it = functions_.find(name); if (it == functions_.end()) return nullptr; return it->second.get(); }
         [[nodiscard]] std::string global_vars_to_dot() const;
         void to_dot(const std::filesystem::path &path) const;
+        [[nodiscard]] std::pair<TAC*, TAC*> to_tac() const;
         [[nodiscard]] std::vector<std::string> to_dot() const;
         [[nodiscard]] bool opt_constants_folding() const;
-        [[nodiscard]] bool opt_common_subexpresson_elimination() const;
+        [[nodiscard]] bool opt_common_subexpression_elimination() const;
     };
 
-    class FunctionCFG : public AbstractCFG<BasicBlock> {
+    class FunctionCFG : public df::AbstractCFG<BasicBlock> {
         class FunctionCFGIterator {
             FunctionCFG *cfg_ = nullptr;
             size_t index_ = -1;
@@ -427,6 +419,7 @@ namespace cfg {
             }
         };
 
+    public:
         BasicBlock begin_block_ = BasicBlock(BasicBlock::BEGIN_BLOCK_ID),
                    end_block_ = BasicBlock(BasicBlock::END_BLOCK_ID);
         std::vector<std::unique_ptr<BasicBlock>> blocks_;
@@ -434,7 +427,6 @@ namespace cfg {
         void init(TAC *start_tac, const TAC *end_tac);
         static std::string block2dot(BasicBlock *);
 
-    public:
         friend class CFG;
         BasicBlock &get_entry() { return begin_block_; }
         BasicBlock &get_exit() { return end_block_; }
@@ -470,6 +462,7 @@ namespace cfg {
         // ReSharper disable once CppMemberFunctionMayBeStatic
         FunctionCFGIterator end() { return {}; } // NOLINT(*-convert-member-functions-to-static)
         [[nodiscard]] std::string to_dot() const;
+        [[nodiscard]] std::pair<TAC *, TAC *> to_tac() const;
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
     };

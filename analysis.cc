@@ -86,8 +86,7 @@ bool ReachingDefinitionAnalysis::transfer_node(const BasicBlock &bb, ReachingDef
     ReachingDefinitionFacts new_out_fact{in_fact};
     for (const auto &tac: bb) {
         if (!tac.has_side_effect() || tac.is_definition()) continue;
-        const SymProxy sym_a(tac->a);
-        if (sym_a.is_temporary()) continue;
+        if (const SymProxy sym_a(tac->a); sym_a.is_temporary()) continue;
         const std::string name(tac->a->name);
         // kill其他definition
         for (const auto &other_df: getDefinitions(name)) {

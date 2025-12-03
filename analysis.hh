@@ -33,7 +33,7 @@ namespace df::analysis {
     class ReachingDefinitionAnalysis final : public DataflowAnalysis<BasicBlock, ReachingDefinitionFacts> {
         std::map<std::string, std::unordered_set<TAC *, HashTacPointer>> value2gen_;
         void insertDefinition(TAC *tac);
-        std::vector<TAC *> getDefinitions(const std::string &name) const;
+        [[nodiscard]] std::vector<TAC *> getDefinitions(const std::string &name) const;
     public:
         void init(const AbstractCFG<BasicBlock> &cfg);
         [[nodiscard]] bool is_forward() const override { return true; }
