@@ -5,6 +5,8 @@
 #include <set>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
+#include <memory>
 
 namespace df {
     template<typename Node>
