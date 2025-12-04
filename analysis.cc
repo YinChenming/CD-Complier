@@ -5,9 +5,9 @@ using namespace analysis;
 using namespace cfg;
 
 std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &) {
-    return new_initial_fact();
+    return std::make_unique<LiveVariableFacts>();
 }
-std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_initial_fact() const {
+std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &) const {
     return std::make_unique<LiveVariableFacts>();
 }
 void LiveVariableAnalysis::meet(const LiveVariableFacts &facts, LiveVariableFacts &result) const {
@@ -76,7 +76,7 @@ std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_boundar
     init(cfg);
     return std::make_unique<ReachingDefinitionFacts>();
 }
-std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_initial_fact() const {
+std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &) const {
     return std::make_unique<ReachingDefinitionFacts>();
 }
 void ReachingDefinitionAnalysis::meet(const ReachingDefinitionFacts &facts, ReachingDefinitionFacts &result) const {
@@ -94,6 +94,47 @@ bool ReachingDefinitionAnalysis::transfer_node(const BasicBlock &bb, ReachingDef
         }
         // gen一个新的definition
         new_out_fact += tac.get();
+    }
+    const bool changed = new_out_fact != out_fact;
+    out_fact = new_out_fact;
+    return changed;
+}
+
+std::unique_ptr<AvailableExpressionFacts> AvailableExpressionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &cfg) const {
+    auto result = std::make_unique<AvailableExpressionFacts>();
+    for (const auto &bb: cfg.nodes()) {
+        for (const auto &tac: *bb) {
+            if (tac.is_computable()) {
+                *result += Expression(tac.get());
+            }
+        }
+    }
+    return result;
+}
+std::unique_ptr<AvailableExpressionFacts>
+AvailableExpressionAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &) {
+    return std::make_unique<AvailableExpressionFacts>();
+}
+void AvailableExpressionAnalysis::meet(const AvailableExpressionFacts &facts, AvailableExpressionFacts &result) const {
+    result &= facts;
+}
+bool AvailableExpressionAnalysis::transfer_node(const BasicBlock &bb, AvailableExpressionFacts &in_fact,
+                                                AvailableExpressionFacts &out_fact) {
+    AvailableExpressionFacts new_out_fact{in_fact};
+    for (const auto &tac: bb) {
+        // 先 gen 再 kill,让形如a=a+b的表达式不要加入out_fact
+        if (tac.is_computable()) {
+            new_out_fact += Expression(tac.get());
+        }
+        if (tac.has_side_effect() && !tac.is_definition()) {
+            AvailableExpressionFacts kill;
+            for (const auto &it: new_out_fact) {
+                if (it.b == tac->a || it.c == tac->a) {
+                    kill += it;
+                }
+            }
+            new_out_fact -= kill;
+        }
     }
     const bool changed = new_out_fact != out_fact;
     out_fact = new_out_fact;

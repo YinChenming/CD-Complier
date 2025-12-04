@@ -54,7 +54,7 @@ namespace df {
         virtual ~DataflowAnalysis() = default;
         [[nodiscard]] virtual bool is_forward() const { return true; }
         [[nodiscard]] virtual std::unique_ptr<Fact> new_boundary_fact(const AbstractCFG<Node> &cfg) = 0;
-        [[nodiscard]] virtual std::unique_ptr<Fact> new_initial_fact() const = 0;
+        [[nodiscard]] virtual std::unique_ptr<Fact> new_initial_fact(const AbstractCFG<Node> &cfg) const = 0;
         virtual void meet(const Fact &facts, Fact &result) const = 0;
         [[nodiscard]] virtual bool transfer_node(const Node &, Fact &in_fact, Fact &out_fact) = 0;
         DataflowAnalysis &operator=(const DataflowAnalysis &) = default;
@@ -92,21 +92,21 @@ namespace df {
         virtual void initializeForward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             for (const Node *node: cfg.nodes()) {
                 if (!cfg.is_entry(*node)) {
-                    df.set_out_fact(*node, std::move(*analysis_.new_initial_fact()));
+                    df.set_out_fact(*node, std::move(*analysis_.new_initial_fact(cfg)));
                 } else {
                     df.set_out_fact(*node, std::move(*analysis_.new_boundary_fact(cfg)));
                 }
-                df.set_in_fact(*node, std::move(*analysis_.new_initial_fact()));
+                df.set_in_fact(*node, std::move(*analysis_.new_initial_fact(cfg)));
             }
         }
         virtual void initializeBackward(const AbstractCFG<Node> &cfg, ResultContainer &df) {
             for (const Node *node: cfg.nodes()) {
                 if (!cfg.is_exit(*node)) {
-                    df.set_in_fact(*node, std::move(*analysis_.new_initial_fact()));
+                    df.set_in_fact(*node, std::move(*analysis_.new_initial_fact(cfg)));
                 } else {
                     df.set_in_fact(*node, std::move(*analysis_.new_boundary_fact(cfg)));
                 }
-                df.set_out_fact(*node, std::move(*analysis_.new_initial_fact()));
+                df.set_out_fact(*node, std::move(*analysis_.new_initial_fact(cfg)));
             }
         }
         void doSolve(const AbstractCFG<Node> &cfg, ResultContainer &df) {
@@ -121,7 +121,7 @@ namespace df {
             do {
                 changed = false;
                 for (const Node *node: cfg.nodes()) {
-                    Fact in_fact = std::move(*analysis_.new_initial_fact());
+                    Fact in_fact = std::move(*analysis_.new_initial_fact(cfg));
                     for (auto &child: cfg.precursors(*node)) {
                         analysis_.meet(df.get_out_fact(*child), in_fact);
                     }
@@ -139,7 +139,7 @@ namespace df {
             do {
                 changed = false;
                 for (const Node *node: cfg.nodes()) {
-                    Fact out_fact = std::move(*analysis_.new_initial_fact());
+                    Fact out_fact = std::move(*analysis_.new_initial_fact(cfg));
                     for (auto &child: cfg.successors(*node)) {
                         analysis_.meet(df.get_in_fact(*child), out_fact);
                     }
@@ -189,8 +189,8 @@ namespace df {
             return {result};
         }
         const FactContainer &operator&=(const FactContainer &facts) {
-            for (auto &it = facts_.begin(); it != facts_.end();) {
-                if (facts.facts_.find(it) == facts.facts_.end()) {
+            for (auto it = facts_.begin(); it != facts_.end();) {
+                if (facts.facts_.find(*it) == facts.facts_.end()) {
                     it = facts_.erase(it);
                 } else {
                     ++it;
@@ -204,6 +204,12 @@ namespace df {
         }
         const FactContainer &operator-=(const Fact &fact) {
             remove(fact);
+            return *this;
+        }
+        const FactContainer &operator-=(const FactContainer &facts) {
+            for (const auto &fact: facts.facts_) {
+                remove(fact);
+            }
             return *this;
         }
 

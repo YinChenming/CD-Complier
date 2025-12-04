@@ -85,7 +85,7 @@ namespace cfg {
         explicit operator bool() const { return tac_; }
         // 强兼struct tac*,可以隐式将代理类转回struct tac*
         explicit operator TAC *() const { return tac_; }
-        const TacProxy &operator=(TAC *tac) {
+        TacProxy &operator=(TAC *tac) {
             tac_ = tac;
             return *this;
         }
@@ -155,7 +155,7 @@ namespace cfg {
         }
         [[nodiscard]] TAC *get() const { return tac_; }
         void set(TAC *tac) { tac_ = tac; }
-        std::string to_string() const;
+        [[nodiscard]] std::string to_string() const;
 
         struct Hash {
             size_t operator()(const TacProxy &tac) const {

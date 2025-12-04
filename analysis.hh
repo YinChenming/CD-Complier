@@ -12,11 +12,11 @@ namespace df::analysis {
     public:
         [[nodiscard]] bool is_forward() const override { return false; }
         [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &) override;
-        [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_initial_fact() const override;
+        [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) const override;
         void meet(const LiveVariableFacts &facts, LiveVariableFacts &result) const override;
         [[nodiscard]] bool transfer_node(const BasicBlock &, LiveVariableFacts &in_fact, LiveVariableFacts &out_fact) override;
     };
-    const LiveVariableAnalysis liveVariableAnalysis = {};
+    // const LiveVariableAnalysis liveVariableAnalysis = {};
     class LiveVariableSolver final
         : public Solver<HashMapDataflowResult<BasicBlock, LiveVariableFacts, BasicBlock::Hash>> {
         inline static LiveVariableAnalysis liveVariableAnalysis_{};
@@ -38,7 +38,7 @@ namespace df::analysis {
         void init(const AbstractCFG<BasicBlock> &cfg);
         [[nodiscard]] bool is_forward() const override { return true; }
         [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &cfg) override;
-        [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_initial_fact() const override;
+        [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) const override;
         void meet(const ReachingDefinitionFacts &facts, ReachingDefinitionFacts &result) const override;
         [[nodiscard]] bool transfer_node(const BasicBlock &, ReachingDefinitionFacts &in_fact, ReachingDefinitionFacts &out_fact) override;
     };
@@ -48,8 +48,34 @@ namespace df::analysis {
         ReachingDefinitionSolver() : Solver(liveVariableAnalysis_) {}
     };
 
-    using AvailableExpressionFacts = HashSetFactContainer<TAC *, HashTacPointer>;
-
+    struct Expression {
+        int op;
+        SYM *b=nullptr, *c=nullptr;
+        explicit Expression(const TAC *tac): op(tac->op), b(tac->b), c(tac->c) {}
+        explicit Expression(int op, SYM *b, SYM *c) : op(op), b(b), c(c) {}
+        bool operator==(const Expression &other) const {
+            return op == other.op && b == other.b && c == other.c;
+        }
+    };
+    struct HashExpression {
+        size_t operator() (const Expression &exp) const {
+            return std::hash<int>()(exp.op) ^ std::hash<SYM *>()(exp.b) ^ std::hash<SYM *>()(exp.c);
+        }
+    };
+    using AvailableExpressionFacts = HashSetFactContainer<Expression, HashExpression>;
+    class AvailableExpressionAnalysis final : public DataflowAnalysis<BasicBlock, AvailableExpressionFacts> {
+    public:
+        [[nodiscard]] bool is_forward() const override { return true; }
+        [[nodiscard]] std::unique_ptr<AvailableExpressionFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &cfg) override;
+        [[nodiscard]] std::unique_ptr<AvailableExpressionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &cfg) const override;
+        void meet(const AvailableExpressionFacts &facts, AvailableExpressionFacts &result) const override;
+        [[nodiscard]] bool transfer_node(const BasicBlock &, AvailableExpressionFacts &in_fact, AvailableExpressionFacts &out_fact) override;
+    };
+    class AvailableExpressionSolver final : public Solver<HashMapDataflowResult<BasicBlock, AvailableExpressionFacts, BasicBlock::Hash>> {
+        inline static AvailableExpressionAnalysis liveVariableAnalysis_{};
+    public:
+        AvailableExpressionSolver() : Solver(liveVariableAnalysis_) {}
+    };
 }
 
 #endif // FINAL_ASSIGNMENT_ANALYSIS_HH

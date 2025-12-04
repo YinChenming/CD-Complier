@@ -2,6 +2,9 @@
 
 #include <stdexcept>    // for std::runtime_error
 #include <algorithm>
+#include <queue>
+#include <set>
+#include <vector>
 
 #include "analysis.hh"
 #include "df.hh"
@@ -16,12 +19,78 @@ using namespace cfg;
 using namespace df;
 using namespace df::analysis;
 
+struct WhileBlock {
+    BasicBlock *header;
+    std::set<BasicBlock *> bodies;
+    std::set<BasicBlock *> exits;
+    std::set<TAC *> tacs;
+    explicit WhileBlock(BasicBlock *header): header(header) {}
+};
+
+static void dfs(const FunctionCFG &cfg, BasicBlock *bb, std::set<BasicBlock*> &visited, std::vector<std::pair<BasicBlock*, BasicBlock*>> &while_blocks) {
+    if (visited.count(bb)) return;
+    visited.insert(bb);
+    std::vector<BasicBlock *> children;
+    if (bb->fallthrough_) children.push_back(bb->fallthrough_);
+    if (bb->ifz_) children.push_back(bb->ifz_);
+    for (const auto &child: children) {
+        if (visited.count(child)) {
+            while_blocks.emplace_back(bb, child);
+            continue;
+        }
+        dfs(cfg, child, visited, while_blocks);
+    }
+}
+
+static std::vector<WhileBlock> get_while_blocks(const FunctionCFG &fcfg) {
+    std::set<BasicBlock*> visited;
+    std::vector<std::pair<BasicBlock*, BasicBlock*>> while_blocks;
+    dfs(fcfg, const_cast<BasicBlock *>(&fcfg.begin_block_), visited, while_blocks);
+    std::vector<WhileBlock> results;
+    results.reserve(while_blocks.size());
+    for (const auto &[header, tail]: while_blocks) {
+        results.emplace_back(header);
+        WhileBlock &while_block = results.back();
+        std::queue<BasicBlock *> queue;
+        queue.push(tail);
+        while (!queue.empty()) {
+            BasicBlock *block = queue.front();
+            queue.pop();
+            while_block.bodies.insert(block);
+            for (const auto &tac: *block) {
+                while_block.tacs.insert(tac.get());
+            }
+            for (const auto &pred: block->preds_) {
+                queue.push(pred);
+            }
+        }
+        for (const auto &body: while_block.bodies) {
+            if (body->fallthrough_ && while_block.bodies.find(body->fallthrough_) == while_block.bodies.end()) {
+                while_block.exits.insert(body);
+            }
+            if (body->ifz_ && while_block.bodies.find(body->ifz_) == while_block.bodies.end()) {
+                while_block.exits.insert(body);
+            }
+        }
+    }
+    return results;
+}
+
+static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
+    bool changed = false;
+    auto while_blocks = get_while_blocks(fcfg);
+    ReachingDefinitionSolver rd_solver;
+    auto rd_result = *rd_solver.solve(fcfg).release();
+    LiveVariableSolver lv_solver;
+    auto rv_result = *lv_solver.solve(fcfg).release();
+}
+
 static bool opt_dead_code_elimination(const CFG *cfg) {
     bool changed = false;
     for (auto &fcfg_kv: cfg->functions_) {
         FunctionCFG& fcfg = *fcfg_kv.second;
         LiveVariableSolver solver;
-        auto result = *solver.solve(fcfg);
+        auto result = *solver.solve(fcfg).release();
         for (auto &bb: fcfg.blocks_) {
             const LiveVariableFacts &out_fact = result.get_out_fact(*bb);
             LiveVariableFacts facts ( out_fact);
@@ -81,7 +150,7 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
     for (auto &fcfg_kv: cfg->functions_) {
         FunctionCFG& fcfg = *fcfg_kv.second;
         ReachingDefinitionSolver solver;
-        auto result = *solver.solve(fcfg);
+        auto result = *solver.solve(fcfg).release();
         for (auto &bb: fcfg.blocks_) {
             auto definitions = reaching_definition_to_map(result.get_in_fact(*bb));
             for (auto &tac: *bb) {
@@ -99,7 +168,6 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         }
                     }
                 }
-
                 if (tac.use_b()) {
                     const SymProxy b(tac->b);
                     const auto &defs = definitions.find(b.name());
@@ -114,7 +182,6 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         }
                     }
                 }
-
                 if (tac.use_c()) {
                     const SymProxy c(tac->c);
                     const auto &defs = definitions.find(c.name());
@@ -153,6 +220,71 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                     bb->ifz_ = nullptr;
                     bb->end_->op = TAC_GOTO;
                     bb->end_->b = NULL;
+                }
+            }
+        }
+    }
+    return changed;
+}
+/**
+ * 还有bug
+ * @param cfg
+ * @return
+ */
+static bool opt_common_subexpression_elimination(const CFG *cfg) {
+    bool changed = false;
+    for (auto &fcfg_kv: cfg->functions_) {
+        FunctionCFG &fcfg = *fcfg_kv.second;
+        AvailableExpressionSolver ae_solver;
+        auto ae_result = *ae_solver.solve(fcfg).release();
+        std::unordered_map<Expression, SYM *, HashExpression> exp2sym;
+        for (auto &bb: fcfg.blocks_) {
+            AvailableExpressionFacts facts {ae_result.get_in_fact(*bb)};
+            for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get(); tac = tac->next) {
+                if (tac.is_computable()) {
+                    if (Expression exp(tac.get()); facts.contains(exp)) {
+                        if (exp2sym.find(exp) == exp2sym.end()) {
+                            exp2sym[exp] = mk_tmp();
+                        }
+                    } else {
+                        facts += exp;
+                    }
+                }
+
+                if (tac.has_side_effect() && !tac.is_definition()) {
+                    AvailableExpressionFacts kill;
+                    for (const auto &it: facts) {
+                        if (it.b == tac->a || it.c == tac->a) {
+                            kill += it;
+                        }
+                    }
+                    facts -= kill;
+                }
+            }
+        }
+
+        std::unordered_set<SYM *> syms;
+        for (auto &bb: fcfg.blocks_) {
+            AvailableExpressionFacts facts {ae_result.get_in_fact(*bb)};
+            for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get(); tac = tac->next) {
+                if (tac.is_computable()) {
+                    if (Expression exp(tac.get()); exp2sym.find(exp) != exp2sym.end()) {
+                        SYM *sym = exp2sym[exp];
+                        if (syms.find(sym) == syms.end()) {
+                            TAC *tac_prev = tac->prev, *decl_sym = mk_tac(TAC_VAR, sym, NULL, NULL);
+                            tac->prev = decl_sym;
+                            decl_sym->prev = tac_prev;
+                            decl_sym->next = tac.get();
+                            tac_prev->next = decl_sym;
+                            syms.insert(sym);
+                        }
+                        TAC *prev = tac->prev, *calc = mk_tac(exp.op, sym, exp.b, exp.c);
+                        tac->prev = calc;
+                        calc->prev = prev;
+                        calc->next = tac.get();
+                        prev->next = calc;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -242,9 +374,58 @@ int run_global_optimization(CFG *cfg){
         }
         printf("\n");
     }
+
+    auto ae_solver = AvailableExpressionSolver();
+    const auto rv_ae_result = ae_solver.solve(fcfg);
+    printf("Available expression solver results:\n");
+    for (const auto &bb: fcfg.nodes()) {
+        printf("Block %d:\n", bb->id());
+        printf("\t in available expressions:");
+        for (const auto &exp: rv_ae_result->get_in_fact(*bb)) {
+            printf(" ");
+            switch (exp.op) {
+                case TAC_ADD: printf("%s + %s", exp.b->name, exp.c->name); break;
+                case TAC_SUB: printf("%s - %s", exp.b->name, exp.c->name); break;
+                case TAC_MUL: printf("%s * %s", exp.b->name, exp.c->name); break;
+                case TAC_DIV: printf("%s / %s", exp.b->name, exp.c->name); break;
+                case TAC_EQ : printf("%s == %s", exp.b->name, exp.c->name); break;
+                case TAC_NE : printf("%s != %s", exp.b->name, exp.c->name); break;
+                case TAC_GT : printf("%s > %s", exp.b->name, exp.c->name); break;
+                case TAC_LE : printf("%s <= %s", exp.b->name, exp.c->name); break;
+                case TAC_GE : printf("%s >= %s", exp.b->name, exp.c->name); break;
+                case TAC_LT : printf("%s < %s", exp.b->name, exp.c->name); break;
+                case TAC_NEG: printf("- %s", exp.b->name); break;
+                default: printf("unknown"); break;
+            }
+            printf(";");
+        }
+        printf("\n");
+        printf("\t out available expressions:");
+        for (const auto &exp: rv_ae_result->get_out_fact(*bb)) {
+            printf(" ");
+            switch (exp.op) {
+                case TAC_ADD: printf("%s + %s", exp.b->name, exp.c->name); break;
+                case TAC_SUB: printf("%s - %s", exp.b->name, exp.c->name); break;
+                case TAC_MUL: printf("%s * %s", exp.b->name, exp.c->name); break;
+                case TAC_DIV: printf("%s / %s", exp.b->name, exp.c->name); break;
+                case TAC_EQ : printf("%s == %s", exp.b->name, exp.c->name); break;
+                case TAC_NE : printf("%s != %s", exp.b->name, exp.c->name); break;
+                case TAC_GT : printf("%s > %s", exp.b->name, exp.c->name); break;
+                case TAC_LE : printf("%s <= %s", exp.b->name, exp.c->name); break;
+                case TAC_GE : printf("%s >= %s", exp.b->name, exp.c->name); break;
+                case TAC_LT : printf("%s < %s", exp.b->name, exp.c->name); break;
+                case TAC_NEG: printf("- %s", exp.b->name); break;
+                default: printf("unknown"); break;
+            }
+            printf(";");
+        }
+        printf("\n");
+    }
+
     int opt_count = 0;
     opt_count += opt_dead_code_elimination(cfg);
     opt_count += opt_constant_and_copy_propagation(cfg);
+    // opt_count += opt_common_subexpression_elimination(cfg);
     return opt_count;
 }
 
