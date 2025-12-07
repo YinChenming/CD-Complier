@@ -4,6 +4,7 @@
 #include <cassert>
 #include <queue>
 #include <set>
+#include <fstream>
 #include <stdexcept> // for std::runtime_error
 #include <vector>
 
@@ -20,6 +21,7 @@
 extern "C" {
 #endif
 #include "tac.h"
+#include "opt_conf.h"
 #ifdef __cplusplus
 }
 #endif
@@ -49,7 +51,6 @@ static void dfs(const FunctionCFG &cfg, BasicBlock *bb, std::map<BasicBlock*, in
             dfs(cfg, child, visited, while_blocks);
         } else if (visited[child] == 1 && !cfg.is_entry(*bb)) {
             // 正在访问,是前驱节点
-            printf("find a back-fill edge: %d -> %d\n", bb->id(), child->id());
             while_blocks.emplace_back(child/* while header */, bb/* while tail */);
         } else {
             // 访问结束,是横边
@@ -690,128 +691,135 @@ void cfg_to_dot(const CFG *cfg, const char *path) {
 }
 
 EXTERNC
-int run_local_optimization(CFG *cfg){
+int run_local_optimization(CFG *cfg, LocalOptimizationConfig conf){
     if (!cfg) return 0;
     int opt_count = 0;
-    if (cfg->opt_constants_folding()) opt_count++;
-    if (cfg->opt_common_subexpression_elimination()) opt_count++;
+    if (!conf.ignore_constant_folding) {
+        if (cfg->opt_constants_folding()) opt_count++;
+    }
+    if (!conf.ignore_common_subexpression_elimination) {
+        if (cfg->opt_common_subexpression_elimination()) opt_count++;
+    }
     return opt_count;
 }
 EXTERNC
-int run_global_optimization(CFG *cfg){
+int run_global_optimization(CFG *cfg, GlobalOptimizationConfig conf){
     if (!cfg) return 0;
-    // 运行LiveVariableAnalysis
-    auto rv_solver = LiveVariableSolver();
-    auto &fcfg = *cfg->get_function("main");
-    auto lv_result = *rv_solver.solve(fcfg);
-    printf("Live variable analysis results:\n");
-    for (const auto &node: fcfg.nodes()) {
-        printf("Block %d:\n", node->id());
-        const auto in_fact = lv_result.get_in_fact(*node);
-        std::vector in_fact_vec(in_fact.begin(), in_fact.end());
-        const auto out_fact = lv_result.get_out_fact(*node);
-        std::vector out_fact_vec(out_fact.begin(), out_fact.end());
-        printf("\t in live variables:");
-        std::sort(in_fact_vec.begin(), in_fact_vec.end());
-        std::sort(out_fact_vec.begin(), out_fact_vec.end());
-        for (const auto &fact: in_fact_vec) {
-            printf(" %s", fact.name().c_str());
-        }
-        printf("\n\tout live variables:");
-        for (const auto &fact: out_fact_vec) {
-            printf(" %s", fact.name().c_str());
-        }
-        printf("\n");
-    }
+    if (conf.dataflow_analysis_report_path) {
+        std::ofstream ofs(conf.dataflow_analysis_report_path, std::ios::app);
 
-    auto rd_solver = ReachingDefinitionSolver();
-    const auto rv_result = rd_solver.solve(fcfg);
-    printf("Reaching definitions results:\n");
-    for (const auto &bb: fcfg.nodes()) {
-        printf("Block %d:\n", bb->id());
-        printf("\t in reaching definitions:");
-        for (const auto &tac: rv_result->get_in_fact(*bb)) {
-            const TacProxy tp(tac);
-            printf(" %s;", tp.to_string().c_str());
+        ofs << "************ new dataflow analysis result ************" << std::endl;
+        // 运行LiveVariableAnalysis
+        auto rv_solver = LiveVariableSolver();
+        auto &fcfg = *cfg->get_function("main");
+        auto lv_result = *rv_solver.solve(fcfg);
+        // printf("Live variable analysis results:\n");
+        ofs << "Live variable analysis results:\n";
+        for (const auto &node: fcfg.nodes()) {
+            // printf("Block %d:\n", node->id());
+            ofs << "Block " << node->id() << ":\n";
+            const auto in_fact = lv_result.get_in_fact(*node);
+            std::vector in_fact_vec(in_fact.begin(), in_fact.end());
+            const auto out_fact = lv_result.get_out_fact(*node);
+            std::vector out_fact_vec(out_fact.begin(), out_fact.end());
+            // printf("\t in live variables:");
+            ofs << "\t in live variables:";
+            std::sort(in_fact_vec.begin(), in_fact_vec.end());
+            std::sort(out_fact_vec.begin(), out_fact_vec.end());
+            for (const auto &fact: in_fact_vec) {
+                // printf(" %s", fact.name().c_str());
+                ofs << " " << fact.name();
+            }
+            // printf("\n\tout live variables:");
+            ofs << "\n\tout live variables:";
+            for (const auto &fact: out_fact_vec) {
+                // printf(" %s", fact.name().c_str());
+                ofs << " " << fact.name();
+            }
+            // printf("\n");
+            ofs << std::endl;
         }
-        printf("\n\tout reaching definitions:");
-        for (const auto &tac: rv_result->get_out_fact(*bb)) {
-            const TacProxy tp(tac);
-            printf(" %s;", tp.to_string().c_str());
-        }
-        printf("\n");
-    }
 
-    auto ae_solver = AvailableExpressionSolver();
-    const auto rv_ae_result = ae_solver.solve(fcfg);
-    printf("Available expression solver results:\n");
-    for (const auto &bb: fcfg.nodes()) {
-        printf("Block %d:\n", bb->id());
-        printf("\t in available expressions:");
-        for (const auto &exp: rv_ae_result->get_in_fact(*bb)) {
-            printf(" ");
-            switch (exp.op) {
-                case TAC_ADD: printf("%s + %s", exp.b->name, exp.c->name); break;
-                case TAC_SUB: printf("%s - %s", exp.b->name, exp.c->name); break;
-                case TAC_MUL: printf("%s * %s", exp.b->name, exp.c->name); break;
-                case TAC_DIV: printf("%s / %s", exp.b->name, exp.c->name); break;
-                case TAC_EQ : printf("%s == %s", exp.b->name, exp.c->name); break;
-                case TAC_NE : printf("%s != %s", exp.b->name, exp.c->name); break;
-                case TAC_GT : printf("%s > %s", exp.b->name, exp.c->name); break;
-                case TAC_LE : printf("%s <= %s", exp.b->name, exp.c->name); break;
-                case TAC_GE : printf("%s >= %s", exp.b->name, exp.c->name); break;
-                case TAC_LT : printf("%s < %s", exp.b->name, exp.c->name); break;
-                case TAC_NEG: printf("- %s", exp.b->name); break;
-                default: printf("unknown"); break;
+        auto rd_solver = ReachingDefinitionSolver();
+        const auto rv_result = rd_solver.solve(fcfg);
+        // printf("Reaching definitions results:\n");
+        ofs << "Reaching definitions results:" << std::endl;
+        for (const auto &bb: fcfg.nodes()) {
+            // printf("Block %d:\n", bb->id());
+            ofs << "Block " << bb->id() << ":\n";
+            // printf("\t in reaching definitions:");
+            ofs << "\t in reaching definitions:";
+            for (const auto &tac: rv_result->get_in_fact(*bb)) {
+                const TacProxy tp(tac);
+                // printf(" %s;", tp.to_string().c_str());
+                ofs << " " << tp.to_string() << ";";
             }
-            printf(";");
-        }
-        printf("\n");
-        printf("\t out available expressions:");
-        for (const auto &exp: rv_ae_result->get_out_fact(*bb)) {
-            printf(" ");
-            switch (exp.op) {
-                case TAC_ADD: printf("%s + %s", exp.b->name, exp.c->name); break;
-                case TAC_SUB: printf("%s - %s", exp.b->name, exp.c->name); break;
-                case TAC_MUL: printf("%s * %s", exp.b->name, exp.c->name); break;
-                case TAC_DIV: printf("%s / %s", exp.b->name, exp.c->name); break;
-                case TAC_EQ : printf("%s == %s", exp.b->name, exp.c->name); break;
-                case TAC_NE : printf("%s != %s", exp.b->name, exp.c->name); break;
-                case TAC_GT : printf("%s > %s", exp.b->name, exp.c->name); break;
-                case TAC_LE : printf("%s <= %s", exp.b->name, exp.c->name); break;
-                case TAC_GE : printf("%s >= %s", exp.b->name, exp.c->name); break;
-                case TAC_LT : printf("%s < %s", exp.b->name, exp.c->name); break;
-                case TAC_NEG: printf("- %s", exp.b->name); break;
-                default: printf("unknown"); break;
+            // printf("\n\tout reaching definitions:");
+            ofs << "\n\tout reaching definitions:";
+            for (const auto &tac: rv_result->get_out_fact(*bb)) {
+                const TacProxy tp(tac);
+                // printf(" %s;", tp.to_string().c_str());
+                ofs << " " << tp.to_string() << ";";
             }
-            printf(";");
+            // printf("\n");
+            ofs << std::endl;
         }
-        printf("\n");
+
+        auto ae_solver = AvailableExpressionSolver();
+        const auto rv_ae_result = ae_solver.solve(fcfg);
+        // printf("Available expression solver results:\n");
+        ofs << "Available expression solver results:" << std::endl;
+        for (const auto &bb: fcfg.nodes()) {
+            // printf("Block %d:\n", bb->id());
+            ofs << "Block " << bb->id() << ":\n";
+            // printf("\t in available expressions:");
+            ofs << "\t in available expressions:";
+            for (const auto &exp: rv_ae_result->get_in_fact(*bb)) {
+                // printf(" ");
+                ofs << " " << exp.to_string() << ";";
+                // printf(";");
+            }
+            ofs << "\n\tout available expressions:";
+            // printf("\n");
+            // printf("\t out available expressions:");
+            for (const auto &exp: rv_ae_result->get_out_fact(*bb)) {
+                // printf(" ");
+                ofs << " " << exp.to_string() << ";";
+                // printf(";");
+            }
+            // printf("\n");
+            ofs << std::endl;
+        }
+
+        ofs << std::endl;
+        ofs.close();
     }
 
     int opt_count = 0;
-    opt_count += opt_dead_code_elimination(cfg);
-    cfg_to_dot(cfg, "dot/after_dce/");
-    opt_count += opt_constant_and_copy_propagation(cfg);
-    cfg_to_dot(cfg, "dot/after_cp/");
-    // opt_count += opt_common_subexpression_elimination(cfg);
-    char path[] = "dot/after_licm0/";
-    for (const auto &it: cfg->functions_) {
-        opt_count += opt_loop_invariant_code_motion(*it.second);
-        path[14]++;
-        cfg_to_dot(cfg, path);
+    if (!conf.ignore_dead_code_elimination) {
+        opt_count += opt_dead_code_elimination(cfg);
+    }
+    if (!conf.ignore_constant_and_copy_propagation) {
+        opt_count += opt_constant_and_copy_propagation(cfg);
+    }
+    if (!conf.ignore_common_subexpression_elimination) {
+        opt_count += opt_common_subexpression_elimination(cfg);
+    }
+    if (!conf.ignore_loop_invariant_code_motion) {
+        for (const auto &it: cfg->functions_) {
+            opt_count += opt_loop_invariant_code_motion(*it.second);
+        }
     }
     return opt_count;
 }
 
 EXTERNC
-int run_optimization(CFG *cfg){
+int run_optimization(CFG *cfg, LocalOptimizationConfig local_conf, GlobalOptimizationConfig global_conf){
     if (!cfg) return 0;
     int opt_count = 0;
-    cfg_to_dot(cfg, "dot/initial/");
-    opt_count += run_local_optimization(cfg);
+    opt_count += run_local_optimization(cfg, local_conf);
     cfg_to_dot(cfg, "dot/after_local_opt/");
-    opt_count += run_global_optimization(cfg);
+    opt_count += run_global_optimization(cfg, global_conf);
     opt_count += cfg->remove_unreachable_blocks();
     return opt_count;
 }

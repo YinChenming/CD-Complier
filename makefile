@@ -48,6 +48,7 @@ $(OUT_DIR)/main.o: $(OUT_DIR)/mini.y.h
 
 test: $(t).m
 	@$(MAKE) clean_dot
+	@rm -rf *.g
 	./mini $(t).m
 	$(MAKE) dot; \
 	./asm $(t).s; \
@@ -71,7 +72,7 @@ $(DOT_DIR)/:
 
 clean:
 	@find ./ | grep -E '^\./[^.].*\.(o|s|x|dot|png)$$' | xargs rm -f
-	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o core $(TARGETS) $(DOT_DIR)
+	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o *.g core $(TARGETS) $(DOT_DIR)
 
 NEW_ASM_NAME = asm-machine
 NEW_ASM_DIR = ./$(NEW_ASM_NAME)

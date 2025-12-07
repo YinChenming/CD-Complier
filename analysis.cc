@@ -100,6 +100,24 @@ bool ReachingDefinitionAnalysis::transfer_node(const BasicBlock &bb, ReachingDef
     return changed;
 }
 
+std::string Expression::to_string() const {
+    switch (op) {
+        case TAC_ADD: return std::string(b->name) + " + " + c->name;
+        case TAC_SUB: return std::string(b->name) + " - " + c->name;
+        case TAC_MUL: return std::string(b->name) + " * " + c->name;
+        case TAC_DIV: return std::string(b->name) + " / " + c->name;
+        case TAC_EQ : return std::string(b->name) + " == " + c->name;
+        case TAC_NE : return std::string(b->name) + " != " + c->name;
+        case TAC_GT : return std::string(b->name) + " > " + c->name;
+        case TAC_LE : return std::string(b->name) + " <= " + c->name;
+        case TAC_GE : return std::string(b->name) + " >= " + c->name;
+        case TAC_LT : return std::string(b->name) + " < " + c->name;
+        case TAC_NEG: return std::string("- ") + b->name;
+        default: return "unknown";
+    }
+}
+
+
 std::unique_ptr<AvailableExpressionFacts> AvailableExpressionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &cfg) const {
     auto result = std::make_unique<AvailableExpressionFacts>();
     for (const auto &bb: cfg.nodes()) {

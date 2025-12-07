@@ -55,9 +55,15 @@ int main(int argc, char *argv[]) {
     tac_init();
     yyparse();
     CFG *cfg = cfg_init(tac_first);
+    LocalOptimizationConfig local_conf;
+    GlobalOptimizationConfig global_conf = {
+        .ignore_common_subexpression_elimination=true,
+        .dataflow_analysis_report_path=strdup(output),
+    };
+    global_conf.dataflow_analysis_report_path[strlen(output)-1] = 'g';
     const int max_loop = 10;
     for (int i=1; i<=max_loop; i++) {
-        int changed_num = run_optimization(cfg);
+        int changed_num = run_optimization(cfg, local_conf, global_conf);
         printf("%d times, optimized %d\n", i, changed_num);
         if (!changed_num) break;
     }

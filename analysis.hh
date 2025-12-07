@@ -65,6 +65,7 @@ namespace df::analysis {
         bool operator==(const Expression &other) const {
             return op == other.op && b == other.b && c == other.c;
         }
+        [[nodiscard]] std::string to_string() const;
     };
     struct HashExpression {
         size_t operator() (const Expression &exp) const {
