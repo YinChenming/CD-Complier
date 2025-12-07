@@ -366,14 +366,12 @@ namespace cfg {
             if (tac == end_.get()) {
                 end_ = end_->prev;
             } else {
-                tac->next->prev = tac->prev;
-                tac->prev->next = tac->next;
+                if (tac->next) tac->next->prev = tac->prev;
             }
             if (tac == begin_.get()) {
                 begin_ = begin_->next;
             } else {
-                tac->prev->next = tac->next;
-                tac->next->prev = tac->prev;
+                if (tac->prev) tac->prev->next = tac->next;
             }
         }
         void del_tac(const TacProxy &tac) {
@@ -398,6 +396,34 @@ namespace cfg {
             if (bb) {
                 bb->preds_.insert(this);
             }
+        }
+        void insert_after(TAC *tac) {
+            if (!tac) return;
+            if (!begin_ || !end_) {
+                begin_ = end_ = tac;
+                return;
+            }
+            tac->next = end_->next;
+            tac->prev = end_.get();
+            if (end_->next) {
+                end_->next->prev = tac;
+            }
+            end_->next = tac;
+            end_ = tac;
+        }
+        void insert_before(TAC *tac) {
+            if (!tac) return;
+            if (!begin_ || !end_) {
+                begin_ = end_ = tac;
+                return;
+            }
+            tac->next = begin_.get();
+            tac->prev = begin_->prev;
+            if (begin_->prev) {
+                begin_->prev->next = tac;
+            }
+            begin_->prev = tac;
+            begin_ = tac;
         }
         static bool is_entry(const BasicBlock &block) { return block.id_ == BEGIN_BLOCK_ID; }
         static bool is_exit(const BasicBlock &block) { return block.id_ == END_BLOCK_ID; }

@@ -355,12 +355,20 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
     std::stack<BasicBlock*> stack;
     if (begin_block_.ifz_) stack.push(begin_block_.ifz_);
     if (begin_block_.fallthrough_) stack.push(begin_block_.fallthrough_);
+    BasicBlock *last_bb = nullptr;
     while (!stack.empty()) {
         BasicBlock *block = stack.top();
         stack.pop();
         if (is_entry(*block) || is_exit(*block)) continue;
         if (visited.count(block)) continue;
         visited.insert(block);
+        if (last_bb && end && end->op == TAC_GOTO && block->begin_.is_label() && end->a == block->begin_->a) {
+            // 删除无效的goto
+            last_bb->del_tac(last_bb->end_);
+            end = end->prev;
+        }
+        last_bb = block;
+
         if (!begin || !end) {
             begin = block->begin_.get();
             begin->prev = nullptr;

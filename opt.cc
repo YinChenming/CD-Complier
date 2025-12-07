@@ -67,10 +67,11 @@ static BasicBlock *copy_basic_block(FunctionCFG &cfg, const BasicBlock &bb) {
     for (TacProxy tac{bb.begin_->next}; tac && tac->prev!=bb.end_.get(); tac = tac->next) {
         if (tac->op == TAC_LABEL) continue;
         if (tac.is_declaration()) continue;
-        new_bb.end_->next = mk_tac(tac->op, tac->a, tac->b, tac->c);
-        new_bb.end_->next->prev = new_bb.end_.get();
-        new_bb.end_ = new_bb.end_->next;
-        new_bb.end_->next = nullptr;
+        new_bb.insert_after(mk_tac(tac->op, tac->a, tac->b, tac->c));
+        // new_bb.end_->next = mk_tac(tac->op, tac->a, tac->b, tac->c);
+        // new_bb.end_->next->prev = new_bb.end_.get();
+        // new_bb.end_ = new_bb.end_->next;
+        // new_bb.end_->next = nullptr;
     }
     return &new_bb;
 }
@@ -118,16 +119,19 @@ static std::vector<WhileBlock> get_while_blocks(FunctionCFG &fcfg) {
             }
             if (new_bb.ifz_) {
                 if (BasicBlock &ft_bb = *new_bb.fallthrough_; ft_bb.begin_->op != TAC_LABEL) {
-                    ft_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-                    ft_bb.begin_->prev->next = ft_bb.begin_.get();
-                    ft_bb.begin_ = ft_bb.begin_->prev;
+                    ft_bb.insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                    // ft_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+                    // ft_bb.begin_->prev->next = ft_bb.begin_.get();
+                    // ft_bb.begin_ = ft_bb.begin_->prev;
                 }
                 BasicBlock &tmp_bb = fcfg.get_new_block();
-                tmp_bb.begin_ = tmp_bb.end_ = mk_tac(TAC_GOTO, new_bb.fallthrough_->begin_->a, NULL, NULL);
-                tmp_bb.fallthrough_ = new_bb.fallthrough_;
-                tmp_bb.fallthrough_->preds_.insert(&tmp_bb);
-                tmp_bb.preds_.insert(&new_bb);
-                new_bb.fallthrough_ = &tmp_bb;
+                tmp_bb.begin_ = tmp_bb.end_ = mk_tac(TAC_GOTO, new_bb.fallthrough_->begin_->a, nullptr, nullptr);
+                tmp_bb.set_fallthrough(new_bb.fallthrough_);
+                // tmp_bb.fallthrough_ = new_bb.fallthrough_;
+                // tmp_bb.fallthrough_->preds_.insert(&tmp_bb);
+                new_bb.set_fallthrough(&tmp_bb);
+                // tmp_bb.preds_.insert(&new_bb);
+                // new_bb.fallthrough_ = &tmp_bb;
                 // tmp_bb用于维持原有跳转逻辑,也是循环块的一部分
                 while_block.bodies.insert(&tmp_bb);
 
@@ -143,9 +147,10 @@ static std::vector<WhileBlock> get_while_blocks(FunctionCFG &fcfg) {
                         pred->fallthrough_ = &new_bb;
                         if (pred->end_->op == TAC_GOTO) {
                             if (new_bb.begin_->op != TAC_LABEL) {
-                                new_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-                                new_bb.begin_->prev->next = new_bb.begin_.get();
-                                new_bb.begin_ = new_bb.begin_->prev;
+                                new_bb.insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                                // new_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+                                // new_bb.begin_->prev->next = new_bb.begin_.get();
+                                // new_bb.begin_ = new_bb.begin_->prev;
                             }
                             pred->end_->a = new_bb.begin_->a;
                         }
@@ -153,9 +158,10 @@ static std::vector<WhileBlock> get_while_blocks(FunctionCFG &fcfg) {
                         pred->ifz_ = &new_bb;
                         if (pred->end_->op == TAC_IFZ) {
                             if (new_bb.begin_->op != TAC_LABEL) {
-                                new_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-                                new_bb.begin_->prev->next = new_bb.begin_.get();
-                                new_bb.begin_ = new_bb.begin_->prev;
+                                new_bb.insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                                // new_bb.begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+                                // new_bb.begin_->prev->next = new_bb.begin_.get();
+                                // new_bb.begin_ = new_bb.begin_->prev;
                             }
                             pred->end_->a = new_bb.begin_->a;
                         }
@@ -199,33 +205,37 @@ static std::vector<WhileBlock> get_while_blocks(FunctionCFG &fcfg) {
             // 创建一个新的preheader
             BasicBlock &new_ph = fcfg.get_new_block();
             new_ph.fallthrough_ = while_block.header;
+            while_block.header->preds_.insert(&new_ph);
             new_ph.ifz_ = nullptr;
-            new_ph.begin_ = new_ph.end_ = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+            new_ph.begin_ = new_ph.end_ = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr);
 
             if (pre_it != while_block.header->preds_.end()) {
                 while_block.header->preds_.erase(pre_it);
                 new_ph.preds_.insert(preheader);
-                if (preheader->ifz_ == while_block.header) {
-                    assert(preheader->end_->op == TAC_IFZ);
-                    preheader->end_->a = new_ph.begin_->a;
-                    preheader->ifz_ = &new_ph;
-                } else {
-                    if (preheader->end_->op == TAC_GOTO) {
+                if (preheader) {
+                    if (preheader->ifz_ == while_block.header) {
+                        assert(preheader->end_->op == TAC_IFZ);
                         preheader->end_->a = new_ph.begin_->a;
+                        preheader->ifz_ = &new_ph;
+                    } else {
+                        if (preheader->end_->op == TAC_GOTO) {
+                            preheader->end_->a = new_ph.begin_->a;
+                        }
+                        // fallthrough 不在此处特殊处理
+                        preheader->fallthrough_ = &new_ph;
                     }
-                    // fallthrough 不在此处特殊处理
-                    preheader->fallthrough_ = &new_ph;
                 }
             }
             if (while_block.header->begin_->op != TAC_LABEL) {
-                while_block.header->begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-                while_block.header->begin_->prev->next = while_block.header->begin_.get();
-                while_block.header->begin_ = while_block.header->begin_->prev;
+                while_block.header->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                // while_block.header->begin_->prev = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
+                // while_block.header->begin_->prev->next = while_block.header->begin_.get();
+                // while_block.header->begin_ = while_block.header->begin_->prev;
             }
-            new_ph.end_ = mk_tac(TAC_GOTO, while_block.header->begin_->a, NULL, NULL);
-            new_ph.begin_->next = new_ph.end_.get();
-            new_ph.end_->prev = new_ph.begin_.get();
-            while_block.header->preds_.insert(&new_ph);
+            new_ph.insert_after(mk_tac(TAC_GOTO, while_block.header->begin_->a, nullptr, nullptr));
+            // new_ph.end_ = mk_tac(TAC_GOTO, while_block.header->begin_->a, nullptr, nullptr);
+            // new_ph.begin_->next = new_ph.end_.get();
+            // new_ph.end_->prev = new_ph.begin_.get();
 
             while_block.preheader = &new_ph;
         } else {
@@ -570,13 +580,13 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                     bb->fallthrough_ = bb->ifz_;
                     bb->ifz_ = nullptr;
                     bb->end_->op = TAC_GOTO;
-                    bb->end_->b = NULL;
+                    bb->end_->b = nullptr;
                 }
             }
             if (bb->fallthrough_ == bb->ifz_ && bb->end_->op == TAC_IFZ) {
                 bb->ifz_ = nullptr;
                 bb->end_->op = TAC_GOTO;
-                bb->end_->b = NULL;
+                bb->end_->b = nullptr;
                 changed = true;
             }
         }
