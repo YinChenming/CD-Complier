@@ -115,7 +115,7 @@ namespace cfg {
                 return false;
             return tac_->c && tac_->b && tac_->a;
         }
-        [[nodiscard]] bool is_definition() const {
+        [[nodiscard]] bool is_declaration() const {
             return tac_ && tac_->op == TAC_VAR;
         }
         [[nodiscard]] bool is_assignment() const {
@@ -123,6 +123,15 @@ namespace cfg {
         }
         [[nodiscard]] bool is_if() const {
             return tac_ && tac_->op == TAC_IFZ;
+        }
+        [[nodiscard]] bool is_goto() const {
+            if (!tac_) return false;
+            if (tac_->op == TAC_GOTO) return true;
+            if (tac_->op == TAC_IFZ) return true;
+            return false;
+        }
+        [[nodiscard]] bool is_label() const {
+            return tac_ && tac_->op == TAC_LABEL;
         }
         [[nodiscard]] bool has_side_effect() const {
             if (!tac_ || !tac_->a)
@@ -136,6 +145,8 @@ namespace cfg {
         [[nodiscard]] bool use_a() const {
             if (!tac_ || !tac_->a) return false;
             if (tac_->op == TAC_OUTPUT) return true;
+            if (tac_->op == TAC_ACTUAL) return true;
+            if (tac_->op == TAC_RETURN) return true;
             return false;
         }
         [[nodiscard]] bool use_b() const {
@@ -333,7 +344,7 @@ namespace cfg {
         TacProxy end_{nullptr};
 
         BasicBlock *fallthrough_ = nullptr, *ifz_ = nullptr;
-        std::vector<BasicBlock *> preds_ = {}; // 前驱数组
+        std::set<BasicBlock *> preds_ = {}; // 前驱数组
 
         explicit BasicBlock(const int id) : id_(id) {}
         explicit BasicBlock(const int id, TAC *begin) : id_(id), begin_(begin) {}
@@ -345,6 +356,48 @@ namespace cfg {
         }
         bool operator!=(const BasicBlock &block) const {
             return id_ != block.id_;
+        }
+        void del_tac(const TAC *tac) {
+            if (!tac || !begin_ || !end_) return;
+            if (begin_ == end_) {
+                if (begin_ == tac) begin_ = end_ = nullptr;
+                return;
+            }
+            if (tac == end_.get()) {
+                end_ = end_->prev;
+            } else {
+                tac->next->prev = tac->prev;
+                tac->prev->next = tac->next;
+            }
+            if (tac == begin_.get()) {
+                begin_ = begin_->next;
+            } else {
+                tac->prev->next = tac->next;
+                tac->next->prev = tac->prev;
+            }
+        }
+        void del_tac(const TacProxy &tac) {
+            del_tac(tac.get());
+        }
+        void set_fallthrough(BasicBlock *bb) {
+            if (fallthrough_ == bb) return;
+            if (fallthrough_) {
+                fallthrough_->preds_.erase(this);
+            }
+            fallthrough_ = bb;
+            if (bb) {
+                bb->preds_.insert(this);
+            }
+        }
+        void set_ifz(BasicBlock *bb) {
+            if (ifz_ == bb) return;
+            if (ifz_) {
+                ifz_->preds_.erase(this);
+            }
+            ifz_ = bb;
+            if (bb) {
+                bb->preds_.insert(this);
+            }
         }
         static bool is_entry(const BasicBlock &block) { return block.id_ == BEGIN_BLOCK_ID; }
         static bool is_exit(const BasicBlock &block) { return block.id_ == END_BLOCK_ID; }
@@ -461,7 +514,11 @@ namespace cfg {
             return succ;
         }
         [[nodiscard]] std::vector<BasicBlock *> precursors(const BasicBlock &bb) const override {
-            return bb.preds_;
+            return {bb.preds_.begin(), bb.preds_.end()};
+        }
+        [[nodiscard]] BasicBlock &get_new_block() {
+            blocks_.push_back(std::make_unique<BasicBlock>(blocks_.size() + 1));
+            return *blocks_.back();
         }
 
         // for(auto &it: function_cfg)

@@ -49,7 +49,7 @@ void ReachingDefinitionAnalysis::insertDefinition(TAC *tac) {
     if (!tac) return;
     const TacProxy tp(tac);
     if (!tp.has_side_effect()) return;
-    if (tp.is_definition()) return;
+    if (tp.is_declaration()) return;
     const std::string name(tp->a->name);
     value2gen_.try_emplace(name);
     value2gen_[name].insert(tac);
@@ -64,7 +64,7 @@ std::vector<TAC *> ReachingDefinitionAnalysis::getDefinitions(const std::string 
 void ReachingDefinitionAnalysis::init(const AbstractCFG<BasicBlock> &cfg) {
     for (const auto &bb: cfg.nodes()) {
         for (const auto &tac: *bb) {
-            if (!tac || !tac.has_side_effect() || tac.is_definition()) continue;
+            if (!tac || !tac.has_side_effect() || tac.is_declaration()) continue;
             const std::string name(tac->a->name);
             value2gen_.try_emplace(name);
             value2gen_[name].insert(tac.get());
@@ -85,8 +85,8 @@ void ReachingDefinitionAnalysis::meet(const ReachingDefinitionFacts &facts, Reac
 bool ReachingDefinitionAnalysis::transfer_node(const BasicBlock &bb, ReachingDefinitionFacts &in_fact, ReachingDefinitionFacts &out_fact) {
     ReachingDefinitionFacts new_out_fact{in_fact};
     for (const auto &tac: bb) {
-        if (!tac.has_side_effect() || tac.is_definition()) continue;
-        if (const SymProxy sym_a(tac->a); sym_a.is_temporary()) continue;
+        if (!tac.has_side_effect() || tac.is_declaration()) continue;
+        // if (const SymProxy sym_a(tac->a); sym_a.is_temporary()) continue;
         const std::string name(tac->a->name);
         // kill其他definition
         for (const auto &other_df: getDefinitions(name)) {
@@ -126,7 +126,7 @@ bool AvailableExpressionAnalysis::transfer_node(const BasicBlock &bb, AvailableE
         if (tac.is_computable()) {
             new_out_fact += Expression(tac.get());
         }
-        if (tac.has_side_effect() && !tac.is_definition()) {
+        if (tac.has_side_effect() && !tac.is_declaration()) {
             AvailableExpressionFacts kill;
             for (const auto &it: new_out_fact) {
                 if (it.b == tac->a || it.c == tac->a) {

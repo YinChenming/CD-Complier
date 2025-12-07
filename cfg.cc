@@ -1,11 +1,13 @@
 #include "cfg.hh"
 
-#include <stdexcept>    // for std::runtime_error
-#include <set>
-#include <list>
-#include <fstream>
-#include <sstream>
 #include <algorithm>
+#include <cassert>
+#include <fstream>
+#include <list>
+#include <set>
+#include <sstream>
+#include <stack>
+#include <stdexcept> // for std::runtime_error
 
 using namespace cfg;
 
@@ -59,7 +61,7 @@ void CFG::init(const TAC *tac) {
 #define CONNECT_(front, back, TYPE)\
 do{\
     (front)->TYPE = (back);\
-    (back)->preds_.push_back(front);\
+    (back)->preds_.insert(front);\
 } while (0)
 #define CONNECT(front, back, TYPE) CONNECT_(front, back, TYPE##_)
 
@@ -110,7 +112,7 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     // 设置 Entry Block
     if (!blocks_.empty()) {
         begin_block_.fallthrough_ = blocks_.front().get();
-        blocks_.front()->preds_.push_back(&begin_block_);
+        blocks_.front()->preds_.insert(&begin_block_);
     } else {
         // 空函数直接退出!!!
         begin_block_.fallthrough_ = &end_block_;
@@ -319,35 +321,87 @@ std::vector<std::string> CFG::to_dot() const {
 
 std::pair<TAC*, TAC*> CFG::to_tac() const {
     TAC *begin = nullptr, *end = nullptr;
+    for (const auto &sym: global_vars_) {
+        if (begin == nullptr || end == nullptr) {
+            begin = end = mk_tac(TAC_VAR, sym, NULL, NULL);
+            continue;
+        }
+        end->next = mk_tac(TAC_VAR, sym, NULL, NULL);
+        end->next->prev = end;
+        end = end->next;
+    }
     for (const auto &func: functions_) {
         const auto result = func.second->to_tac();
-        if (begin == nullptr || end == nullptr) {
-            begin = mk_tac(TAC_LABEL, mk_label((char*)func.first.c_str()), NULL, NULL);
-            begin->next = mk_tac(TAC_BEGINFUNC, NULL, NULL, NULL);
-            begin->next->prev = begin;
-            begin->next->next = result.first;
-            result.first->prev = begin->next;
+        TAC *func_tac = mk_tac(TAC_LABEL, mk_label((char*)func.first.c_str()), NULL, NULL);
+        func_tac->next = mk_tac(TAC_BEGINFUNC, NULL, NULL, NULL);
+        func_tac->next->prev = func_tac;
+        func_tac->next->next = result.first;
+        result.first->prev = func_tac->next;
 
+        if (begin == nullptr || end == nullptr) {
+            begin = func_tac;
             end = result.second;
             continue;
         }
-        end->next = result.first;
-        end->next->prev = end;
+        end->next = func_tac;
+        func_tac->prev = end;
         end = result.second;
     }
     return {begin, end};
 }
 std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
     TAC *begin = nullptr, *end = nullptr;
-    for (auto &bb: blocks_) {
-        if (begin == nullptr || end == nullptr) {
-            begin = bb->begin_.get();
-            end = bb->end_.get();
+    std::unordered_set<BasicBlock*> visited;
+    std::stack<BasicBlock*> stack;
+    if (begin_block_.ifz_) stack.push(begin_block_.ifz_);
+    if (begin_block_.fallthrough_) stack.push(begin_block_.fallthrough_);
+    while (!stack.empty()) {
+        BasicBlock *block = stack.top();
+        stack.pop();
+        if (is_entry(*block) || is_exit(*block)) continue;
+        if (visited.count(block)) continue;
+        visited.insert(block);
+        if (!begin || !end) {
+            begin = block->begin_.get();
+            begin->prev = nullptr;
+            end = block->end_.get();
+            end->next = nullptr;
+        } else {
+            end->next = block->begin_.get();
+            block->begin_->prev = end;
+            end = block->end_.get();
+        }
+        while (block->ifz_) {
+            stack.push(block->ifz_);
+            block = block->fallthrough_;
+            end->next = block->begin_.get();
+            end->next->prev = end;
+            end = block->end_.get();
+        }
+        if (!block->fallthrough_ || is_exit(*block->fallthrough_)) continue;
+        if (visited.count(block->fallthrough_)) {
+            if (block->end_->op != TAC_GOTO || block->end_->a != block->fallthrough_->begin_->a) {
+                BasicBlock *ft_bb = block->fallthrough_;
+                if (!ft_bb->begin_.is_label()) {
+                    TAC *label_tac = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr);
+                    label_tac->prev = ft_bb->begin_->prev;
+                    label_tac->next = ft_bb->begin_.get();
+                    if (label_tac->prev) {
+                        label_tac->prev->next = label_tac;
+                    }
+                    ft_bb->begin_->prev = label_tac;
+                    if (ft_bb->begin_ == begin) {
+                        begin = label_tac;
+                    }
+                    ft_bb->begin_ = label_tac;
+                }
+                block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
+                block->end_->next->prev = block->end_.get();
+                block->end_ = end = block->end_->next;
+            }
             continue;
         }
-        end->next = bb->begin_.get();
-        bb->begin_->prev = end;
-        end = bb->end_.get();
+        stack.push(block->fallthrough_);
     }
     return {begin, end};
 }
@@ -368,7 +422,7 @@ bool FunctionCFG::opt_constants_folding() const {
 }
 bool BasicBlock::opt_constants_folding() const {
     bool optimized = false;
-    for (auto t = begin_; t != end_->next; t = t->next) {
+    for (auto t = begin_; t && t->prev != end_.get(); t = t->next) {
         if (t->op >= TAC_MIN_CALC && t->op <= TAC_MAX_CALC) {
             if (t->b->type == SYM_INT && t->c->type == SYM_INT) {
                 const int val_a = t->b->value, val_b = t->c->value;
@@ -411,6 +465,7 @@ bool BasicBlock::opt_constants_folding() const {
                 // 修改当前TAC为赋值操作
                 t->op = TAC_COPY;
                 t->b = const_sym; // 赋值的常量
+                t->c = nullptr;
 
                 optimized = true;
             }
@@ -439,7 +494,7 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
         return t1->op == t2->op && t1->b == t2->b && t1->c == t2->c;
     };
     std::list<TAC *> assignments;
-    for (auto tac = begin_; tac.get() != end_.get(); tac = tac->next) {
+    for (auto tac = begin_; tac && tac->prev != end_.get(); tac = tac->next) {
         if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC) {
             bool flag = true;
             for (const auto &assignment: assignments) {
@@ -482,11 +537,11 @@ bool FunctionCFG::remove_unreachable_blocks() {
             // unreachable bb!
             if (bb->fallthrough_) {
                 BasicBlock &child = *bb->fallthrough_;
-                child.preds_.erase(std::remove(child.preds_.begin(), child.preds_.end(), bb.get()), child.preds_.end());
+                child.preds_.erase(bb.get());
             }
             if (bb->ifz_) {
                 BasicBlock &child = *bb->ifz_;
-                child.preds_.erase(std::remove(child.preds_.begin(), child.preds_.end(), bb.get()), child.preds_.end());
+                child.preds_.erase(bb.get());
             }
             blocks_.erase(it);
             result = true;

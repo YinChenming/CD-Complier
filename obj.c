@@ -354,7 +354,17 @@ void asm_code(TAC *c) {
             return;
 
         case TAC_EQ:
+            if (c->b == c->c) {
+                r = reg_alloc(mk_const(1));
+                rdesc_fill(r, c->a, MODIFIED);
+                return;
+            }
         case TAC_NE:
+            if (c->b == c->c) {
+                r = reg_alloc(mk_const(0));
+                rdesc_fill(r, c->a, MODIFIED);
+                return;
+            }
         case TAC_LT:
         case TAC_LE:
         case TAC_GT:
@@ -379,7 +389,7 @@ void asm_code(TAC *c) {
             return;
 
         case TAC_OUTPUT:
-            if (c->a->type == SYM_VAR) {
+            if (c->a->type == SYM_VAR || c->a->type == SYM_INT) {
                 r = reg_alloc(c->a);
                 out_str(file_s, "	LOD R15,R%u\n", r);
 #ifdef NEW_ASM

@@ -29,7 +29,16 @@ namespace df::analysis {
             return std::hash<size_t>()(reinterpret_cast<size_t>(tac));
         }
     };
-    using ReachingDefinitionFacts = HashSetFactContainer<TAC *, HashTacPointer>;
+    class ReachingDefinitionFacts final : public HashSetFactContainer<TAC *, HashTacPointer> {
+    public:
+        [[nodiscard]] std::unordered_map<std::string, std::vector<TAC*>> to_map() const {
+            std::unordered_map<std::string, std::vector<TAC*>> result;
+            for (auto &tac: *this) {
+                result[std::string(tac->a->name)].push_back(tac);
+            }
+            return result;
+        }
+    };
     class ReachingDefinitionAnalysis final : public DataflowAnalysis<BasicBlock, ReachingDefinitionFacts> {
         std::map<std::string, std::unordered_set<TAC *, HashTacPointer>> value2gen_;
         void insertDefinition(TAC *tac);
