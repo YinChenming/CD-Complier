@@ -411,6 +411,29 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
         }
         stack.push(block->fallthrough_);
     }
+    // 删除无效的label
+    for (auto &bb: blocks_) {
+        bool need_label = false;
+        for (const auto &pred: bb->preds_) {
+            if (pred->end_.is_goto()) {
+                if (pred->end_->op == TAC_GOTO) {
+                    need_label = true;
+                } else if (pred->end_->op == TAC_IFZ && pred->ifz_ == bb.get()) {
+                    need_label = true;
+                }
+            }
+        }
+        if (!need_label && bb->begin_.is_label()) {
+            if (bb->begin_ == begin) {
+                begin = begin->next;
+            }
+            if (bb->begin_ == end) {
+                end = end->next;
+            }
+            bb->del_tac(bb->begin_);
+        }
+    }
+
     return {begin, end};
 }
 

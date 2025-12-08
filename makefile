@@ -49,7 +49,7 @@ $(OUT_DIR)/main.o: $(OUT_DIR)/mini.y.h
 test: $(t).m
 	@$(MAKE) clean_dot
 	@rm -rf *.g
-	./mini $(t).m
+	./mini $(t).m > $(t)_report.txt
 	$(MAKE) dot; \
 	./asm $(t).s; \
 	./machine $(t).o

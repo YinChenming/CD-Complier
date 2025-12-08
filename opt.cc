@@ -523,7 +523,7 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
                             if (another.is_const() || strcmp(tac->a->name, another->name)>0) {
-                                printf("block %d: a replace '%s' to '%s'\n", bb->id(), tac->a->name, another->name);
+                                printf("block %d: '%s' replace tac->a('%s') to '%s'\n", bb->id(),tac.to_string().c_str(), tac->a->name, another->name);
                                 tac->a = another.get();
                                 changed = true;
                             }
@@ -537,7 +537,7 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
                             if (another.is_const() || strcmp(tac->b->name, another->name)>0) {
-                                printf("block %d: b replace '%s' to '%s'\n", bb->id(), tac->b->name, another->name);
+                                printf("block %d: '%s' replace tac->b('%s') to '%s'\n", bb->id(), tac.to_string().c_str(), tac->b->name, another->name);
                                 tac->b = another.get();
                                 changed = true;
                             }
@@ -551,7 +551,7 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
                             if (another.is_const() || strcmp(tac->c->name, another->name)>0) {
-                                printf("block %d: c replace '%s' to '%s'\n", bb->id(), tac->c->name, another->name);
+                                printf("block %d: '%s' replace tac->c('%s') to '%s'\n", bb->id(), tac.to_string().c_str(), tac->c->name, another->name);
                                 tac->c = another.get();
                                 changed = true;
                             }
@@ -605,57 +605,67 @@ static bool opt_common_subexpression_elimination(const CFG *cfg) {
         FunctionCFG &fcfg = *fcfg_kv.second;
         AvailableExpressionSolver ae_solver;
         auto ae_result = *ae_solver.solve(fcfg).release();
-        std::unordered_map<Expression, SYM *, HashExpression> exp2sym;
+        ReachingDefinitionSolver rd_solver;
+        auto rd_result = *rd_solver.solve(fcfg).release();
         for (auto &bb: fcfg.blocks_) {
-            AvailableExpressionFacts facts {ae_result.get_in_fact(*bb)};
+            AvailableExpressionFacts ae_facts {ae_result.get_in_fact(*bb)};
+            ReachingDefinitionFacts rd_facts {rd_result.get_in_fact(*bb)};
             for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get(); tac = tac->next) {
                 if (tac.is_computable()) {
-                    if (Expression exp(tac.get()); facts.contains(exp)) {
-                        if (exp2sym.find(exp) == exp2sym.end()) {
-                            exp2sym[exp] = mk_tmp();
+                    if (Expression exp(tac.get()); ae_facts.contains(exp)) {
+                        // 尝试寻找可以替换的表达式
+                        auto rd_facts_map = rd_facts.to_map();
+                        SYM *possible_sym = nullptr;
+                        for (auto fact: rd_facts) {
+                            if (const Expression fact_exp(fact); fact_exp == exp) {
+                                auto it = rd_facts_map.find(fact->a->name);
+                                // 如果该变量到此刻的所有定值均为该expression,我们就用该变量替换
+                                if (it != rd_facts_map.end()) {
+                                    auto it_rds = it->second.begin();
+                                    for (;it_rds!=it->second.end(); ++it_rds) {
+                                        if (const Expression rd_exp(*it_rds);!(rd_exp==exp)) break;
+                                    }
+                                    if (it_rds == it->second.end()) {
+                                        possible_sym = fact->a;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (possible_sym) {
+                            printf("block %d: '%s = %s' -> '%s = %s'\n", bb->id(), tac->a->name, exp.to_string().c_str(), tac->a->name, possible_sym->name);
+                            tac->op = TAC_COPY;
+                            tac->b = possible_sym;
+                            tac->c = nullptr;
+                            changed = true;
                         }
                     } else {
-                        facts += exp;
+                        ae_facts += exp;
                     }
                 }
 
                 if (tac.has_side_effect() && !tac.is_declaration()) {
                     AvailableExpressionFacts kill;
-                    for (const auto &it: facts) {
+                    for (const auto &it: ae_facts) {
                         if (it.b == tac->a || it.c == tac->a) {
                             kill += it;
                         }
                     }
-                    facts -= kill;
+                    ae_facts -= kill;
+
+                    const SymProxy a(tac->a);
+                    ReachingDefinitionFacts kill_facts;
+                    for (auto fact: rd_facts) {
+                        if (const SymProxy sym(fact->a); a.name() == sym.name()) {
+                            kill_facts += fact;
+                        }
+                    }
+                    rd_facts -= kill_facts;
+                    rd_facts += tac.get();
                 }
             }
         }
 
-        std::unordered_set<SYM *> syms;
-        for (auto &bb: fcfg.blocks_) {
-            AvailableExpressionFacts facts {ae_result.get_in_fact(*bb)};
-            for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get(); tac = tac->next) {
-                if (tac.is_computable()) {
-                    if (Expression exp(tac.get()); exp2sym.find(exp) != exp2sym.end()) {
-                        SYM *sym = exp2sym[exp];
-                        if (syms.find(sym) == syms.end()) {
-                            TAC *tac_prev = tac->prev, *decl_sym = mk_tac(TAC_VAR, sym, NULL, NULL);
-                            tac->prev = decl_sym;
-                            decl_sym->prev = tac_prev;
-                            decl_sym->next = tac.get();
-                            tac_prev->next = decl_sym;
-                            syms.insert(sym);
-                        }
-                        TAC *prev = tac->prev, *calc = mk_tac(exp.op, sym, exp.b, exp.c);
-                        tac->prev = calc;
-                        calc->prev = prev;
-                        calc->next = tac.get();
-                        prev->next = calc;
-                        changed = true;
-                    }
-                }
-            }
-        }
     }
     return changed;
 }
@@ -818,7 +828,6 @@ int run_optimization(CFG *cfg, LocalOptimizationConfig local_conf, GlobalOptimiz
     if (!cfg) return 0;
     int opt_count = 0;
     opt_count += run_local_optimization(cfg, local_conf);
-    cfg_to_dot(cfg, "dot/after_local_opt/");
     opt_count += run_global_optimization(cfg, global_conf);
     opt_count += cfg->remove_unreachable_blocks();
     return opt_count;

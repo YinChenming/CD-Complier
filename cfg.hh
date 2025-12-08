@@ -360,15 +360,25 @@ namespace cfg {
         void del_tac(const TAC *tac) {
             if (!tac || !begin_ || !end_) return;
             if (begin_ == end_) {
-                if (begin_ == tac) begin_ = end_ = nullptr;
+                if (begin_ == tac) {
+                    if (begin_->prev) begin_->prev->next = begin_->next;
+                    if (end_->next) end_->next->prev = begin_->prev;
+                    begin_ = end_ = nullptr;
+                }
                 return;
             }
             if (tac == end_.get()) {
+                if (end_->next) {
+                    end_->next->prev = end_->prev;
+                }
                 end_ = end_->prev;
             } else {
                 if (tac->next) tac->next->prev = tac->prev;
             }
             if (tac == begin_.get()) {
+                if (begin_->prev) {
+                    begin_->prev->next = begin_->next;
+                }
                 begin_ = begin_->next;
             } else {
                 if (tac->prev) tac->prev->next = tac->next;

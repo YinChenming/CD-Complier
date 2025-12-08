@@ -55,9 +55,10 @@ int main(int argc, char *argv[]) {
     tac_init();
     yyparse();
     CFG *cfg = cfg_init(tac_first);
+    cfg_to_dot(cfg, "dot/initial/");
     LocalOptimizationConfig local_conf;
     GlobalOptimizationConfig global_conf = {
-        .ignore_common_subexpression_elimination=true,
+        // .ignore_common_subexpression_elimination=true,
         .dataflow_analysis_report_path=strdup(output),
     };
     global_conf.dataflow_analysis_report_path[strlen(output)-1] = 'g';
