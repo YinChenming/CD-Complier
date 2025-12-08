@@ -71,7 +71,7 @@ $(DOT_DIR)/:
 	@mkdir $(DOT_DIR)
 
 clean:
-	@find ./ | grep -E '^\./[^.].*\.(o|s|x|dot|png)$$' | xargs rm -f
+	@find ./ | grep -E '^\./[^.].*\.(o|s|x|dot|png|g|svg|txt)$$' | xargs rm -f
 	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o *.g core $(TARGETS) $(DOT_DIR)
 
 NEW_ASM_NAME = asm-machine

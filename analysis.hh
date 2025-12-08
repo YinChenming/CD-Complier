@@ -12,7 +12,7 @@ namespace df::analysis {
     public:
         [[nodiscard]] bool is_forward() const override { return false; }
         [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &) override;
-        [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) const override;
+        [[nodiscard]] std::unique_ptr<LiveVariableFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) override;
         void meet(const LiveVariableFacts &facts, LiveVariableFacts &result) const override;
         [[nodiscard]] bool transfer_node(const BasicBlock &, LiveVariableFacts &in_fact, LiveVariableFacts &out_fact) override;
     };
@@ -47,7 +47,7 @@ namespace df::analysis {
         void init(const AbstractCFG<BasicBlock> &cfg);
         [[nodiscard]] bool is_forward() const override { return true; }
         [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &cfg) override;
-        [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) const override;
+        [[nodiscard]] std::unique_ptr<ReachingDefinitionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &) override;
         void meet(const ReachingDefinitionFacts &facts, ReachingDefinitionFacts &result) const override;
         [[nodiscard]] bool transfer_node(const BasicBlock &, ReachingDefinitionFacts &in_fact, ReachingDefinitionFacts &out_fact) override;
     };
@@ -77,7 +77,7 @@ namespace df::analysis {
     public:
         [[nodiscard]] bool is_forward() const override { return true; }
         [[nodiscard]] std::unique_ptr<AvailableExpressionFacts> new_boundary_fact(const AbstractCFG<BasicBlock> &cfg) override;
-        [[nodiscard]] std::unique_ptr<AvailableExpressionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &cfg) const override;
+        [[nodiscard]] std::unique_ptr<AvailableExpressionFacts> new_initial_fact(const AbstractCFG<BasicBlock> &cfg) override;
         void meet(const AvailableExpressionFacts &facts, AvailableExpressionFacts &result) const override;
         [[nodiscard]] bool transfer_node(const BasicBlock &, AvailableExpressionFacts &in_fact, AvailableExpressionFacts &out_fact) override;
     };

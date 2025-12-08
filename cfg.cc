@@ -319,7 +319,7 @@ std::vector<std::string> CFG::to_dot() const {
     return result;
 }
 
-std::pair<TAC*, TAC*> CFG::to_tac() const {
+std::pair<TAC*, TAC*> CFG::to_tac() {
     TAC *begin = nullptr, *end = nullptr;
     for (const auto &sym: global_vars_) {
         if (begin == nullptr || end == nullptr) {
@@ -349,7 +349,7 @@ std::pair<TAC*, TAC*> CFG::to_tac() const {
     }
     return {begin, end};
 }
-std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
+std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
     TAC *begin = nullptr, *end = nullptr;
     std::unordered_set<BasicBlock*> visited;
     std::stack<BasicBlock*> stack;
@@ -424,10 +424,10 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() const {
             }
         }
         if (!need_label && bb->begin_.is_label()) {
-            if (bb->begin_ == begin) {
+            if (bb->begin_ == begin && begin) {
                 begin = begin->next;
             }
-            if (bb->begin_ == end) {
+            if (bb->begin_ == end && end) {
                 end = end->next;
             }
             bb->del_tac(bb->begin_);

@@ -54,7 +54,7 @@ namespace df {
         virtual ~DataflowAnalysis() = default;
         [[nodiscard]] virtual bool is_forward() const { return true; }
         [[nodiscard]] virtual std::unique_ptr<Fact> new_boundary_fact(const AbstractCFG<Node> &cfg) = 0;
-        [[nodiscard]] virtual std::unique_ptr<Fact> new_initial_fact(const AbstractCFG<Node> &cfg) const = 0;
+        [[nodiscard]] virtual std::unique_ptr<Fact> new_initial_fact(const AbstractCFG<Node> &cfg) = 0;
         virtual void meet(const Fact &facts, Fact &result) const = 0;
         [[nodiscard]] virtual bool transfer_node(const Node &, Fact &in_fact, Fact &out_fact) = 0;
         DataflowAnalysis &operator=(const DataflowAnalysis &) = default;

@@ -10,7 +10,7 @@ extern "C" {
 #include "opt_conf.h"
 typedef struct CFG CFG;
 CFG *cfg_init(TAC*);
-void cfg_free(const CFG*);
+void cfg_free(CFG*);
 void cfg_to_dot(const CFG*, const char *path);
 
 int run_optimization(CFG*, LocalOptimizationConfig, GlobalOptimizationConfig);

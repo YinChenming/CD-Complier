@@ -7,7 +7,7 @@ using namespace cfg;
 std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &) {
     return std::make_unique<LiveVariableFacts>();
 }
-std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &) const {
+std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &) {
     return std::make_unique<LiveVariableFacts>();
 }
 void LiveVariableAnalysis::meet(const LiveVariableFacts &facts, LiveVariableFacts &result) const {
@@ -71,12 +71,13 @@ void ReachingDefinitionAnalysis::init(const AbstractCFG<BasicBlock> &cfg) {
         }
     }
 }
-std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &cfg) {
-    value2gen_.clear();
-    init(cfg);
+std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &) {
     return std::make_unique<ReachingDefinitionFacts>();
 }
-std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &) const {
+std::unique_ptr<ReachingDefinitionFacts> ReachingDefinitionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &cfg) {
+    if (value2gen_.empty()) {
+        init(cfg);
+    }
     return std::make_unique<ReachingDefinitionFacts>();
 }
 void ReachingDefinitionAnalysis::meet(const ReachingDefinitionFacts &facts, ReachingDefinitionFacts &result) const {
@@ -117,8 +118,7 @@ std::string Expression::to_string() const {
     }
 }
 
-
-std::unique_ptr<AvailableExpressionFacts> AvailableExpressionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &cfg) const {
+std::unique_ptr<AvailableExpressionFacts> AvailableExpressionAnalysis::new_initial_fact(const AbstractCFG<BasicBlock> &cfg) {
     auto result = std::make_unique<AvailableExpressionFacts>();
     for (const auto &bb: cfg.nodes()) {
         for (const auto &tac: *bb) {

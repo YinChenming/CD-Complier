@@ -367,32 +367,35 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                 if (tac.is_declaration()) {
                     if (const SymProxy sym(tac->a); invariant_vars.count(sym.name())) {
                         need_declarations.insert(sym.name());
-                        if (tac == bb->begin_) {
-                            bb->begin_ = tac->next;
-                        } else {
-                            tac->prev->next = tac->next;
-                        }
-                        if (tac == bb->end_) {
-                            bb->end_ = tac->prev;
-                        } else {
-                            tac->next->prev = tac->prev;
-                        }
+                        bb->del_tac(tac);
+                        // if (tac == bb->begin_) {
+                        //     bb->begin_ = tac->next;
+                        // } else {
+                        //     tac->prev->next = tac->next;
+                        // }
+                        // if (tac == bb->end_) {
+                        //     bb->end_ = tac->prev;
+                        // } else {
+                        //     tac->next->prev = tac->prev;
+                        // }
                     }
                 }
             }
         }
         for (auto &[bb, tac]: tac_list) {
             // 将tac从原来的位置删除
-            if (tac == bb->end_.get()) {
-                bb->end_ = tac->prev;
-            } else {
-                tac->next->prev = tac->prev;
-            }
-            if (tac == bb->begin_.get()) {
-                bb->begin_ = tac->next;
-            } else {
-                tac->prev->next = tac->next;
-            }
+            bb->del_tac(tac);
+            tac->prev = tac->next = nullptr;
+            // if (tac == bb->end_.get()) {
+            //     bb->end_ = tac->prev;
+            // } else {
+            //     tac->next->prev = tac->prev;
+            // }
+            // if (tac == bb->begin_.get()) {
+            //     bb->begin_ = tac->next;
+            // } else {
+            //     tac->prev->next = tac->next;
+            // }
             // 把tac移到新的位置
             if (!begin || !end) {
                 begin = end = tac;
@@ -405,7 +408,7 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                 TAC *decl = mk_tac(TAC_VAR, tac->a, NULL, NULL);
                 decl->prev = end->prev;
                 decl->next = end.get();
-                end->prev->next = decl;
+                if (end->prev) end->prev->next = decl;
                 end->prev = decl;
                 if (begin == end) begin = decl;
             }
@@ -471,16 +474,17 @@ static bool opt_dead_code_elimination(const CFG *cfg) {
                     } else {
                         // 无用赋值,删除
                         printf("block %d: delete '%s'\n", bb->id(), tac.to_string().c_str());
-                        if (tac==bb->end_) {
-                            bb->end_ = tac->prev;
-                        } else {
-                            tac->next->prev = tac->prev;
-                        }
-                        if (tac==bb->begin_) {
-                            bb->begin_ = tac->next;
-                        } else {
-                            tac->prev->next = tac->next;
-                        }
+                        bb->del_tac(tac);
+                        // if (tac==bb->end_) {
+                        //     bb->end_ = tac->prev;
+                        // } else {
+                        //     tac->next->prev = tac->prev;
+                        // }
+                        // if (tac==bb->begin_) {
+                        //     bb->begin_ = tac->next;
+                        // } else {
+                        //     tac->prev->next = tac->next;
+                        // }
                         changed = true;
                         continue;
                     }
@@ -594,11 +598,6 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
     }
     return changed;
 }
-/**
- * 还有bug
- * @param cfg
- * @return
- */
 static bool opt_common_subexpression_elimination(const CFG *cfg) {
     bool changed = false;
     for (auto &fcfg_kv: cfg->functions_) {
@@ -679,7 +678,7 @@ CFG *cfg_init(TAC *tac) {
     }
 }
 EXTERNC
-void cfg_free(const CFG *cfg) {
+void cfg_free(CFG *cfg) {
     if (cfg) {
         tac_first = cfg->to_tac().first;
         try {
@@ -749,6 +748,7 @@ int run_global_optimization(CFG *cfg, GlobalOptimizationConfig conf){
             // printf("\n");
             ofs << std::endl;
         }
+        ofs << std::endl;
 
         auto rd_solver = ReachingDefinitionSolver();
         const auto rv_result = rd_solver.solve(fcfg);
@@ -774,6 +774,7 @@ int run_global_optimization(CFG *cfg, GlobalOptimizationConfig conf){
             // printf("\n");
             ofs << std::endl;
         }
+        ofs << std::endl;
 
         auto ae_solver = AvailableExpressionSolver();
         const auto rv_ae_result = ae_solver.solve(fcfg);

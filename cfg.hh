@@ -333,7 +333,7 @@ namespace cfg {
                 operator++();
                 return tmp;
             }
-            TAC *get() const {
+            [[nodiscard]] TAC *get() const {
                 if (!tac_) return nullptr;
                 return tac_.get();
             }
@@ -466,7 +466,7 @@ namespace cfg {
         [[nodiscard]] FunctionCFG *get_function(const std::string &name) const { auto it = functions_.find(name); if (it == functions_.end()) return nullptr; return it->second.get(); }
         [[nodiscard]] std::string global_vars_to_dot() const;
         void to_dot(const std::filesystem::path &path) const;
-        [[nodiscard]] std::pair<TAC*, TAC*> to_tac() const;
+        [[nodiscard]] std::pair<TAC*, TAC*> to_tac();
         [[nodiscard]] std::vector<std::string> to_dot() const;
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
@@ -562,7 +562,7 @@ namespace cfg {
         // ReSharper disable once CppMemberFunctionMayBeStatic
         FunctionCFGIterator end() { return {}; } // NOLINT(*-convert-member-functions-to-static)
         [[nodiscard]] std::string to_dot() const;
-        [[nodiscard]] std::pair<TAC *, TAC *> to_tac() const;
+        [[nodiscard]] std::pair<TAC *, TAC *> to_tac();
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
         [[nodiscard]] bool remove_unreachable_blocks();
