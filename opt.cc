@@ -65,7 +65,7 @@ static BasicBlock *copy_basic_block(FunctionCFG &cfg, const BasicBlock &bb) {
     if (new_bb.begin_->op == TAC_LABEL) {
         new_bb.begin_->a = mk_label(mk_lstr(next_label++));
     }
-    for (TacProxy tac{bb.begin_->next}; tac && tac->prev!=bb.end_.get(); tac = tac->next) {
+    for (TacProxy tac{bb.begin_->next}; tac && tac != bb.end_->next; tac = tac->next) {
         if (tac->op == TAC_LABEL) continue;
         if (tac.is_declaration()) continue;
         new_bb.insert_after(mk_tac(tac->op, tac->a, tac->b, tac->c));
@@ -283,7 +283,7 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                     do {
                         if (tac.is_declaration() || !tac.has_side_effect()) break;
                         // licm **不会**对简单的赋值语句做处理!其只针对计算表达式
-                        if (const SymProxy sym(tac->b); tac.is_assignment() && sym.is_const()) break;
+                        if (const SymProxy sym_b(tac->b), sym_c(tac->c); tac.has_side_effect() && sym_b.is_const() && (!sym_c||sym_c.is_const())) break;
                         if (const SymProxy sym(tac->a); tac.use_a() && !is_invariant_sym(sym, rd_fact)) break;
                         if (const SymProxy sym(tac->b); tac.use_b() && (sym.get() == tac->a || !is_invariant_sym(sym, rd_fact))) break;
                         if (const SymProxy sym(tac->c); tac.use_c() && (sym.get() == tac->a || !is_invariant_sym(sym, rd_fact))) break;
@@ -295,6 +295,8 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                             }
                             break;
                         }
+                        assert(!a_name.empty());
+                        assert(tac != nullptr);
                         invariant_vars[a_name] = std::make_pair(bb, tac.get());
                     } while (false);
 
@@ -338,20 +340,27 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
             }
             std::vector<std::pair<BasicBlock*, TAC*>> tacs;
             std::unordered_set<std::string> next_tacs;
+            std::remove_reference_t<decltype(invariant_vars)> del_vars{invariant_vars};
             for (const auto &[name, tac_p]: invariant_vars) {
                 if (!in_degrees.count(name)) next_tacs.insert(name);
             }
             while (!next_tacs.empty()) {
                 auto tac_it = next_tacs.begin();
-                auto var_name = *tac_it;
+                assert(tac_it != next_tacs.end());
+                auto var_name {*tac_it};
                 next_tacs.erase(tac_it);
                 tacs.push_back(invariant_vars[var_name]);
+                assert(tacs.back().second != nullptr);
+                del_vars.erase(var_name);
                 if (const auto it = to_edges.find(var_name); it != to_edges.end()) {
                     for (const auto &to_name: it->second) {
                         in_degrees[to_name] -= 1;
                         if (!in_degrees[to_name]) next_tacs.insert(to_name);
                     }
                 }
+            }
+            for (const auto &[name, tac_p]: del_vars) {
+                invariant_vars.erase(name);
             }
             return tacs;
         };
@@ -363,7 +372,7 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
         // 连着赋值语句一起提出循环
         std::unordered_set<std::string> need_declarations;
         for (const auto &bb: while_block.bodies) {
-            for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get();tac = tac->next) {
+            for (auto tac = bb->begin_; tac && tac != bb->end_->next; tac = tac->next) {
                 if (tac.is_declaration()) {
                     if (const SymProxy sym(tac->a); invariant_vars.count(sym.name())) {
                         need_declarations.insert(sym.name());
@@ -466,10 +475,10 @@ static bool opt_dead_code_elimination(const CFG *cfg) {
         for (auto &bb: fcfg.blocks_) {
             const LiveVariableFacts &out_fact = result.get_out_fact(*bb);
             LiveVariableFacts facts ( out_fact);
-            for (auto tac = bb->end_; tac && tac->next!=bb->begin_.get(); tac = tac->prev) {
+            for (auto tac = bb->end_; tac && tac != bb->begin_->prev; tac = tac->prev) {
                 if (tac.has_side_effect() && !tac.is_declaration()) {
                     const SymProxy a(tac->a);
-                    if (facts.contains(a)) {
+                    if (facts.contains(a) && !(tac.is_assignment() && tac->a == tac->b)) {
                         facts -= a;
                     } else {
                         // 无用赋值,删除
@@ -564,7 +573,9 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                 }
 
                 if (tac.has_side_effect() && !tac.is_declaration()) {
-                    definitions[std::string(tac->a->name)].push_back(tac.get());
+                    const std::string name{tac->a->name};
+                    definitions.erase(name);
+                    definitions[name].push_back(tac.get());
                 }
             }
             // 对条件跳转结尾优化
@@ -609,7 +620,7 @@ static bool opt_common_subexpression_elimination(const CFG *cfg) {
         for (auto &bb: fcfg.blocks_) {
             AvailableExpressionFacts ae_facts {ae_result.get_in_fact(*bb)};
             ReachingDefinitionFacts rd_facts {rd_result.get_in_fact(*bb)};
-            for (auto tac = bb->begin_; tac && tac->prev != bb->end_.get(); tac = tac->next) {
+            for (auto tac = bb->begin_; tac && tac != bb->end_->next; tac = tac->next) {
                 if (tac.is_computable()) {
                     if (Expression exp(tac.get()); ae_facts.contains(exp)) {
                         // 尝试寻找可以替换的表达式
@@ -809,17 +820,25 @@ int run_global_optimization(CFG *cfg, GlobalOptimizationConfig conf){
     int opt_count = 0;
     if (!conf.ignore_dead_code_elimination) {
         opt_count += opt_dead_code_elimination(cfg);
+        cfg->remove_unnecessary_gotos_and_labels();
+        // cfg->combine_fallthrough();
     }
     if (!conf.ignore_constant_and_copy_propagation) {
         opt_count += opt_constant_and_copy_propagation(cfg);
+        cfg->remove_unnecessary_gotos_and_labels();
+        // cfg->combine_fallthrough();
     }
     if (!conf.ignore_common_subexpression_elimination) {
         opt_count += opt_common_subexpression_elimination(cfg);
+        cfg->remove_unnecessary_gotos_and_labels();
+        // cfg->combine_fallthrough();
     }
     if (!conf.ignore_loop_invariant_code_motion) {
         for (const auto &it: cfg->functions_) {
             opt_count += opt_loop_invariant_code_motion(*it.second);
         }
+        cfg->remove_unnecessary_gotos_and_labels();
+        // cfg->combine_fallthrough();
     }
     return opt_count;
 }

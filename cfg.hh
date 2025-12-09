@@ -450,6 +450,7 @@ namespace cfg {
 
         struct Hash {
             size_t operator()(const BasicBlock &block) const {
+                // return std::hash<BasicBlock*>()(const_cast<BasicBlock *>(&block));
                 return std::hash<int>()(block.id_);
             }
         };
@@ -471,6 +472,8 @@ namespace cfg {
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
         [[nodiscard]] bool remove_unreachable_blocks() const;
+        void remove_unnecessary_gotos_and_labels() const;
+        void combine_fallthrough() const;
     };
 
     class FunctionCFG : public df::AbstractCFG<BasicBlock> {
@@ -516,6 +519,7 @@ namespace cfg {
         };
 
     public:
+        inline static int counter = 1;
         BasicBlock begin_block_ = BasicBlock(BasicBlock::BEGIN_BLOCK_ID),
                    end_block_ = BasicBlock(BasicBlock::END_BLOCK_ID);
         std::vector<std::unique_ptr<BasicBlock>> blocks_;
@@ -543,7 +547,7 @@ namespace cfg {
             return result;
         }
         [[nodiscard]] std::vector<BasicBlock *> successors(const BasicBlock &bb) const override {
-            std::vector succ{bb.fallthrough_};
+            std::vector<BasicBlock*> succ{bb.fallthrough_};
             if (bb.ifz_) {
                 succ.push_back(bb.ifz_);
             }
@@ -553,7 +557,7 @@ namespace cfg {
             return {bb.preds_.begin(), bb.preds_.end()};
         }
         [[nodiscard]] BasicBlock &get_new_block() {
-            blocks_.push_back(std::make_unique<BasicBlock>(blocks_.size() + 1));
+            blocks_.push_back(std::make_unique<BasicBlock>(counter++));
             return *blocks_.back();
         }
 
@@ -566,6 +570,9 @@ namespace cfg {
         [[nodiscard]] bool opt_constants_folding() const;
         [[nodiscard]] bool opt_common_subexpression_elimination() const;
         [[nodiscard]] bool remove_unreachable_blocks();
+        void remove_unnecessary_gotos_and_labels();
+        void delete_empty_block();
+        void combine_fallthrough();
     };
 
 } // namespace cfg

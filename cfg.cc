@@ -89,8 +89,8 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
     TAC *current_tac = start_tac;
     while (current_tac && current_tac != end_tac->next) {
         if (leaders.count(current_tac)) {
-            blocks_.push_back(std::make_unique<BasicBlock>(blocks_.size() + 1, current_tac));
-            BasicBlock *current_block = blocks_.back().get();
+            BasicBlock *current_block = &get_new_block();
+            current_block->begin_ = current_tac;
 
             if (is_label(current_tac->op) && current_tac->a && current_tac->a->name) {
                 labeled_blocks[std::string(current_tac->a->name)] = current_block;
@@ -183,7 +183,7 @@ std::string FunctionCFG::block2dot(BasicBlock *block) {
     size_t size = 0;
     FILE *mem_file = open_memstream(&buffer, &size);
     int i = 1;
-    for (auto ptac=block->begin_; ptac && ptac!=block->end_; ptac=ptac->next) {
+    for (auto ptac=block->begin_; ptac && ptac.get() != block->end_.get(); ptac=ptac->next) {
         fprintf(mem_file, "(%d) ", i++);
         out_tac(mem_file, ptac.get());
         fprintf(mem_file, "\\l");
@@ -367,7 +367,6 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
             last_bb->del_tac(last_bb->end_);
             end = end->prev;
         }
-        last_bb = block;
 
         if (!begin || !end) {
             begin = block->begin_.get();
@@ -378,34 +377,98 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
             end->next = block->begin_.get();
             block->begin_->prev = end;
             end = block->end_.get();
+            end->next = nullptr;
         }
         while (block->ifz_) {
             stack.push(block->ifz_);
+            if (visited.count(block->fallthrough_)) {
+                // if (block->fallthrough_->begin_->prev && block->fallthrough_->begin_->prev->op == TAC_IFZ) {
+                    if (block->fallthrough_->begin_->op != TAC_LABEL) {
+                        block->fallthrough_->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                    }
+                    if (begin == block->fallthrough_->begin_->next) {
+                        begin = block->fallthrough_->begin_.get();
+                    }
+                    block->insert_after(mk_tac(TAC_GOTO, block->fallthrough_->begin_->a, nullptr, nullptr));
+                    end = block->end_.get();
+                    last_bb = block;
+                // } else {
+                //     end = block->begin_->prev;
+                //     assert(end == last_bb->end_.get());
+                //     BasicBlock *pred_bb = nullptr;
+                //     for (auto &pred: block->fallthrough_->preds_) {
+                //         if (pred->end_.get() == block->fallthrough_->begin_->prev) {
+                //             pred_bb = pred;
+                //             break;
+                //         }
+                //     }
+                //     assert(pred_bb);
+                //     if (!block->fallthrough_->begin_.is_label()) {
+                //         block->fallthrough_->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                //     }
+                //     if (!pred_bb->end_.is_goto()) {
+                //         pred_bb->insert_after(mk_tac(TAC_GOTO, block->fallthrough_->begin_->a, nullptr, nullptr));
+                //         if (pred_bb->end_->prev == end) end = pred_bb->end_.get();
+                //     }
+                //     if (!block->begin_.is_label()) {
+                //         block->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                //         if (begin == block->begin_->next) begin = block->begin_.get();
+                //     }
+                //     for (auto &pred: block->preds_) {
+                //         if (!visited.count(pred)) continue;
+                //         if (!pred->end_.is_goto() || pred->end_->a != block->begin_->a) {
+                //             pred->insert_after(mk_tac(TAC_GOTO, block->begin_->a, nullptr, nullptr));
+                //             if (pred->end_->prev == end) end = pred->end_.get();
+                //         }
+                //     }
+                //     block->begin_->prev = block->fallthrough_->begin_->prev;
+                //     if (block->begin_->prev) {
+                //         block->begin_->prev->next = block->begin_.get();
+                //     }
+                //     block->end_->next = block->fallthrough_->begin_.get();
+                //     block->fallthrough_->begin_->prev = block->end_.get();
+                //     if (begin == block->fallthrough_->begin_.get()) {
+                //         begin =  block->begin_.get();
+                //     }
+                //     visited.insert(block);
+                // }
+                break;
+            }
             block = block->fallthrough_;
+            visited.insert(block);
             end->next = block->begin_.get();
+            block->begin_->prev = end;
             end->next->prev = end;
             end = block->end_.get();
         }
+        if (block->ifz_) continue;
+        last_bb = block;
         if (!block->fallthrough_ || is_exit(*block->fallthrough_)) continue;
         if (visited.count(block->fallthrough_)) {
             if (block->end_->op != TAC_GOTO || block->end_->a != block->fallthrough_->begin_->a) {
                 BasicBlock *ft_bb = block->fallthrough_;
                 if (!ft_bb->begin_.is_label()) {
-                    TAC *label_tac = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr);
-                    label_tac->prev = ft_bb->begin_->prev;
-                    label_tac->next = ft_bb->begin_.get();
-                    if (label_tac->prev) {
-                        label_tac->prev->next = label_tac;
-                    }
-                    ft_bb->begin_->prev = label_tac;
-                    if (ft_bb->begin_ == begin) {
-                        begin = label_tac;
-                    }
-                    ft_bb->begin_ = label_tac;
+                    ft_bb->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr));
+                    // TAC *label_tac = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr);
+                    // label_tac->prev = ft_bb->begin_->prev;
+                    // label_tac->next = ft_bb->begin_.get();
+                    // if (label_tac->prev) {
+                    //     label_tac->prev->next = label_tac;
+                    // }
+                    // ft_bb->begin_->prev = label_tac;
+                    // if (ft_bb->begin_ == begin) {
+                    //     begin = label_tac;
+                    // }
+                    // ft_bb->begin_ = label_tac;
                 }
-                block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
-                block->end_->next->prev = block->end_.get();
-                block->end_ = end = block->end_->next;
+                if (begin == ft_bb->begin_->next) {
+                    begin = ft_bb->begin_.get();
+                }
+                block->insert_after(mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr));
+                // block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
+                // block->end_->next->prev = block->end_.get();
+                // block->end_ = end = block->end_->next;
+                end = block->end_.get();
             }
             continue;
         }
@@ -418,7 +481,7 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
             if (pred->end_.is_goto()) {
                 if (pred->end_->op == TAC_GOTO) {
                     need_label = true;
-                } else if (pred->end_->op == TAC_IFZ && pred->ifz_ == bb.get()) {
+                } else if ((pred->end_->op == TAC_IFZ && pred->ifz_ == bb.get()) || pred->end_->next != bb->begin_.get()) {
                     need_label = true;
                 }
             }
@@ -431,6 +494,46 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
                 end = end->next;
             }
             bb->del_tac(bb->begin_);
+        }
+    }
+
+    // kill declarations
+    for (TacProxy tac{begin}; tac && begin && end && tac.get() != end->next; tac = tac->next) {
+        if (!tac.is_declaration()) continue;
+        if (tac.get() == begin) begin = begin->next;
+        if (tac->prev) tac->prev->next = tac->next;
+        if (tac->next) tac->next->prev = tac->prev;
+    }
+    std::unordered_set<SYM *> has_declared;
+    for (TacProxy tac{begin}; tac && begin && end && tac.get() != end->next; tac = tac->next) {
+        if (const SymProxy sym{tac->a}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+            TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
+            decl->prev = tac->prev;
+            decl->next = tac.get();
+            if (tac.get() == begin) begin = decl;
+            if (tac->prev) tac->prev->next = decl;
+            tac->prev = decl;
+            has_declared.insert(sym.get());
+        }
+
+        if (const SymProxy sym{tac->b}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+            TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
+            decl->prev = tac->prev;
+            decl->next = tac.get();
+            if (tac.get() == begin) begin = decl;
+            if (tac->prev) tac->prev->next = decl;
+            tac->prev = decl;
+            has_declared.insert(sym.get());
+        }
+
+        if (const SymProxy sym{tac->c}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+            TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
+            decl->prev = tac->prev;
+            decl->next = tac.get();
+            if (tac.get() == begin) begin = decl;
+            if (tac->prev) tac->prev->next = decl;
+            tac->prev = decl;
+            has_declared.insert(sym.get());
         }
     }
 
@@ -453,7 +556,7 @@ bool FunctionCFG::opt_constants_folding() const {
 }
 bool BasicBlock::opt_constants_folding() const {
     bool optimized = false;
-    for (auto t = begin_; t && t->prev != end_.get(); t = t->next) {
+    for (auto t = begin_; t && t.get() != end_->next; t = t->next) {
         if (t->op >= TAC_MIN_CALC && t->op <= TAC_MAX_CALC) {
             if (t->b->type == SYM_INT && t->c->type == SYM_INT) {
                 const int val_a = t->b->value, val_b = t->c->value;
@@ -525,7 +628,7 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
         return t1->op == t2->op && t1->b == t2->b && t1->c == t2->c;
     };
     std::list<TAC *> assignments;
-    for (auto tac = begin_; tac && tac->prev != end_.get(); tac = tac->next) {
+    for (auto tac = begin_; tac && tac.get() != end_->next; tac = tac->next) {
         if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC) {
             bool flag = true;
             for (const auto &assignment: assignments) {
@@ -581,4 +684,189 @@ bool FunctionCFG::remove_unreachable_blocks() {
         }
     }
     return result;
+}
+void CFG::remove_unnecessary_gotos_and_labels() const {
+    for (const auto &fcfg: functions_) {
+        fcfg.second->remove_unnecessary_gotos_and_labels();
+    }
+}
+void FunctionCFG::remove_unnecessary_gotos_and_labels() {
+    delete_empty_block();
+
+    std::unordered_set<BasicBlock*> visited;
+    std::stack<BasicBlock*> stack;
+    if (begin_block_.ifz_) stack.push(begin_block_.ifz_);
+    if (begin_block_.fallthrough_) stack.push(begin_block_.fallthrough_);
+    BasicBlock *last_bb = nullptr;
+    while (!stack.empty()) {
+        BasicBlock *block = stack.top();
+        stack.pop();
+        if (is_entry(*block) || is_exit(*block)) continue;
+        if (visited.count(block)) continue;
+        visited.insert(block);
+        if (last_bb && last_bb->end_->op == TAC_GOTO && block->begin_.is_label() && last_bb->end_->a == block->begin_->a) {
+            // 删除无效的goto
+            if (block->fallthrough_ != last_bb && block->ifz_ != last_bb) {
+                last_bb->del_tac(last_bb->end_);
+                if (!last_bb->begin_ || !last_bb->end_) {
+                    block->preds_.erase(last_bb);
+                    for (auto &pred: last_bb->preds_) {
+                        if (pred->fallthrough_ == last_bb) {
+                            // set_fallthrough 会改变last_bb->preds_
+                            pred->fallthrough_ = block;
+                            block->preds_.insert(pred);
+                        }
+                        else assert(0);
+                    }
+                    for (auto it = blocks_.begin(); it != blocks_.end();) {
+                        if (it->get() == last_bb) it = blocks_.erase(it);
+                        else ++it;
+                    }
+                }
+            }
+        }
+        while (block->ifz_ && !is_exit(*block)) {
+            stack.push(block->ifz_);
+
+            last_bb = block;
+            block = block->fallthrough_;
+        }
+        if (!block->fallthrough_ || is_exit(*block->fallthrough_)) continue;
+        last_bb = block;
+        if (visited.count(block->fallthrough_)) {
+            if (block->end_->op != TAC_GOTO || block->end_->a != block->fallthrough_->begin_->a) {
+                BasicBlock *ft_bb = block->fallthrough_;
+                if (!ft_bb->begin_.is_label()) {
+                    TAC *label_tac = mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), nullptr, nullptr);
+                    label_tac->prev = ft_bb->begin_->prev;
+                    label_tac->next = ft_bb->begin_.get();
+                    if (label_tac->prev) {
+                        label_tac->prev->next = label_tac;
+                    }
+                    ft_bb->begin_->prev = label_tac;
+                    ft_bb->begin_ = label_tac;
+                }
+                block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
+                block->end_->next->prev = block->end_.get();
+                block->end_ = block->end_->next;
+
+            }
+            continue;
+        }
+        stack.push(block->fallthrough_);
+    }
+    delete_empty_block();
+    // 删除无效的label
+    for (auto &bb: blocks_) {
+        bool need_label = false;
+        for (const auto &pred: bb->preds_) {
+            if (pred->end_.is_goto()) {
+                if (pred->end_->op == TAC_GOTO) {
+                    need_label = true;
+                } else if (pred->end_->op == TAC_IFZ && pred->ifz_ == bb.get()) {
+                    need_label = true;
+                }
+            }
+        }
+        if (!need_label && bb->begin_.is_label()) {
+            bb->del_tac(bb->begin_);
+        }
+    }
+    delete_empty_block();
+}
+void FunctionCFG::delete_empty_block() {
+    // 对已经为空的block进行处理
+    std::set<BasicBlock*> del_bbs;
+    std::stack<BasicBlock*>stack;
+    std::unordered_set<BasicBlock*> visited;
+    if (begin_block_.ifz_) stack.push(begin_block_.ifz_);
+    if (begin_block_.fallthrough_) stack.push(begin_block_.fallthrough_);
+    while (!stack.empty()) {
+        auto bb = stack.top();
+        stack.pop();
+        if (visited.count(bb) || is_entry(*bb) || is_exit(*bb)) continue;
+        visited.insert(bb);
+        if (!bb->begin_ || !bb->end_) {
+            del_bbs.insert(bb);
+            auto pred_it = bb->preds_.begin();
+            if (pred_it == bb->preds_.end()) {
+                continue;
+            }
+            auto &pred = **pred_it;
+            bb->fallthrough_->preds_.erase(bb);
+            if (pred.fallthrough_ == bb) {
+                pred.set_fallthrough(bb->fallthrough_);
+            } else {
+                pred.set_ifz(bb->fallthrough_);
+            }
+        }
+        if (bb->fallthrough_) stack.push(bb->fallthrough_);
+        if (bb->ifz_) stack.push(bb->ifz_);
+    }
+    for (auto it = blocks_.begin(); it != blocks_.end();) {
+        if (del_bbs.count(it->get())) {
+            printf("block %d: empty, remove!\n", (*it)->id());
+            it = blocks_.erase(it);
+        } else {
+            assert((*it)->begin_);
+            assert((*it)->end_);
+            ++it;
+        }
+    }
+}
+void CFG::combine_fallthrough() const {
+    for (auto &[name, fcfg]: functions_) {
+        fcfg->combine_fallthrough();
+    }
+}
+void FunctionCFG::combine_fallthrough() {
+    delete_empty_block();
+
+    std::stack<BasicBlock*> stack;
+    std::unordered_set<BasicBlock*> visited;
+    if (begin_block_.fallthrough_) stack.push(begin_block_.fallthrough_);
+    if (begin_block_.ifz_) stack.push(begin_block_.ifz_);
+    while (!stack.empty()) {
+        auto bb = stack.top();
+        stack.pop();
+        if (is_entry(*bb) || is_exit(*bb)) continue;
+        if (visited.count(bb)) continue;
+        visited.insert(bb);
+
+        while (!bb->ifz_ && bb->fallthrough_ && !is_exit(*bb->fallthrough_) && bb->fallthrough_->preds_.size() == 1) {
+            // 如果当前block有且只有一个后继,并且后继也只有当前block一个前驱,就可以安全地合并两个block
+            BasicBlock &ft_bb = *bb->fallthrough_;
+            printf("block %d: combine with block %d\n", bb->id(), ft_bb.id());
+            if (ft_bb.begin_.is_label()) {
+                ft_bb.del_tac(ft_bb.begin_);
+            }
+            if (bb->end_.is_goto()) {
+                bb->del_tac(bb->end_);
+            }
+            if (ft_bb.fallthrough_) ft_bb.fallthrough_->preds_.erase(&ft_bb);
+            if (ft_bb.ifz_) ft_bb.ifz_->preds_.erase(&ft_bb);
+            bb->set_fallthrough(ft_bb.fallthrough_);
+            bb->set_ifz(ft_bb.ifz_);
+
+            if (ft_bb.begin_ && ft_bb.end_) {
+                if (bb->end_ && bb->begin_) bb->end_->next = ft_bb.begin_.get();
+                else {
+                    bb->begin_ = ft_bb.begin_;
+                }
+                ft_bb.begin_->prev = bb->end_.get();
+                bb->end_ = ft_bb.end_;
+            }
+            for (auto it = blocks_.begin(); it != blocks_.end();) {
+                if (it->get() == &ft_bb) {
+                    it = blocks_.erase(it);
+                    break;
+                } else {
+                    ++it;
+                }
+            }
+            bb = bb->fallthrough_;
+        }
+        if (bb->fallthrough_) stack.push(bb->fallthrough_);
+        if (bb->ifz_) stack.push(bb->ifz_);
+    }
 }

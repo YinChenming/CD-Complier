@@ -17,7 +17,7 @@ bool LiveVariableAnalysis::transfer_node(const BasicBlock &bb, LiveVariableFacts
                                          /* const */ LiveVariableFacts &out_fact) {
     // 先kill再gen
     auto new_in_fact {out_fact};
-    for (auto tac = bb.end_; tac && tac->next!=bb.begin_.get(); tac=TacProxy(tac->prev)) {
+    for (auto tac = bb.end_; tac && tac.get() != bb.begin_->prev; tac=tac->prev) {
     // for (const auto &tac: bb) {
         if (tac.has_side_effect()) {
             // kill a
@@ -25,22 +25,26 @@ bool LiveVariableAnalysis::transfer_node(const BasicBlock &bb, LiveVariableFacts
         }
         if (tac.use_a()) {
             const SymProxy a(tac->a);
-            if (!a.is_const())
+            if (!a.is_const()) {
                 new_in_fact += a;
+            }
         }
         if (tac.use_b()) {
             // gen b
             const SymProxy b(tac->b);
-            if (!b.is_const())
+            if (!b.is_const()) {
                 new_in_fact += b;
+            }
         }
         if (tac.use_c()) {
             const SymProxy c(tac->c);
-            if (!c.is_const())
+            if (!c.is_const()) {
                 new_in_fact += c;
+            }
         }
     }
     const auto changed = new_in_fact != in_fact;
+
     in_fact = new_in_fact;
     return changed;
 }
