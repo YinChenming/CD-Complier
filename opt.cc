@@ -627,6 +627,7 @@ static bool opt_common_subexpression_elimination(const CFG *cfg) {
                         auto rd_facts_map = rd_facts.to_map();
                         SYM *possible_sym = nullptr;
                         for (auto fact: rd_facts) {
+                            if (fact->a == tac->a) continue;
                             if (const Expression fact_exp(fact); fact_exp == exp) {
                                 auto it = rd_facts_map.find(fact->a->name);
                                 // 如果该变量到此刻的所有定值均为该expression,我们就用该变量替换
