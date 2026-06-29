@@ -37,4 +37,6 @@ extern int oof; /* offset of formal */
 extern int oon; /* offset of next frame */
 
 void tac_obj();
+
+
 #endif // OBJ_H

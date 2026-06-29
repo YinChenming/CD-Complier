@@ -42,6 +42,10 @@
 #define TAC_GT 9 /* a=(b>c) */
 #define TAC_GE 10 /* a=(b>=c) */
 #define TAC_NEG 11 /* a=-b */
+
+#define TAC_MIN_CALC TAC_ADD
+#define TAC_MAX_CALC TAC_NEG
+
 #define TAC_ADDR 12 /* a=&b */
 #define TAC_DEREF 13 /* a=*b or a=b[c] */
 

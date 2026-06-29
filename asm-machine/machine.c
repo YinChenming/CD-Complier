@@ -17,40 +17,14 @@ int op, rx, ry, constant; /* opcode, register1, register2, immediate constant */
 int cycle, mem_r, mem_w, mul_div;
 
 // get instruction from addr
-static void instruction(int addr) {
+void instruction(int addr) {
     op = (*(int *) &(mem[addr])) & 0xffff; // 16 bit
     rx = mem[addr + 2]; // 8 bit
     ry = mem[addr + 3]; // 8 bit
     constant = *(int *) &(mem[addr + 4]); // 32 bit
 }
 
-static void output_char(const unsigned char c) {
-    if (c >= ' ' && c <= '~') {
-        // visible char
-        if (c == '\'' || c == '\\')
-            printf("'\\%c'", c);
-        else
-            printf("'%c'", c);
-    } else if (c == '\t') {
-        printf("'\\t'");
-    } else if (c == '\b') {
-        printf("'\\b'");
-    } else if (c == '\n') {
-        printf("'\\n'");
-    } else if (c == '\a') {
-        printf("'\\a'");
-    } else if (c == '\v') {
-        printf("'\\v'");
-    } else if (c == '\r') {
-        printf("'\\r'");
-    } else if (c == '\0') {
-        printf("'\\0'");
-    } else {
-        printf("'\\x%02x'", c);
-    }
-}
-
-int main(const int argc, const char *const argv[]) {
+int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s filename\n", argv[0]);
         exit(0);
@@ -95,7 +69,7 @@ int main(const int argc, const char *const argv[]) {
                 break;
 
             case I_OTC:
-                output_char(reg[15]); /* Print out reg[15] in ASCII */
+                printf("%c", reg[15]); /* Print out reg[15] in ASCII */
                 break;
 
             case I_OTI:
@@ -103,7 +77,7 @@ int main(const int argc, const char *const argv[]) {
                 break;
 
             case I_OTS:
-                printf("%s", (const char *) &mem[reg[15]]); /* Print string pointed by reg[15] */
+                printf("%s", &mem[reg[15]]); /* Print string pointed by reg[15] */
                 break;
 
             case I_ITC:
@@ -278,7 +252,7 @@ int main(const int argc, const char *const argv[]) {
                     reg[R_FLAG] = FLAG_EZ;
                 else if (t < 0)
                     reg[R_FLAG] = FLAG_LZ;
-                else /*t>0*/
+                else if (t > 0)
                     reg[R_FLAG] = FLAG_GZ;
                 break;
 
@@ -339,4 +313,6 @@ int main(const int argc, const char *const argv[]) {
 
         reg[R_IP] = reg[R_IP] + 8; /* next instruction */
     }
+
+    return 0;
 }
