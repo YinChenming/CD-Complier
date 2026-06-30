@@ -389,7 +389,11 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
                     if (begin == block->fallthrough_->begin_->next) {
                         begin = block->fallthrough_->begin_.get();
                     }
-                    block->insert_after(mk_tac(TAC_GOTO, block->fallthrough_->begin_->a, nullptr, nullptr));
+                    if (block->end_->op == TAC_GOTO) {
+                        block->end_->a = block->fallthrough_->begin_->a;
+                    } else {
+                        block->insert_after(mk_tac(TAC_GOTO, block->fallthrough_->begin_->a, nullptr, nullptr));
+                    }
                     end = block->end_.get();
                     last_bb = block;
                 // } else {
@@ -464,13 +468,24 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
                 if (begin == ft_bb->begin_->next) {
                     begin = ft_bb->begin_.get();
                 }
-                block->insert_after(mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr));
-                // block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
-                // block->end_->next->prev = block->end_.get();
-                // block->end_ = end = block->end_->next;
+                if (block->end_->op == TAC_GOTO) {
+                    block->end_->a = ft_bb->begin_->a;
+                } else {
+                    block->insert_after(mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr));
+                }
                 end = block->end_.get();
             }
             continue;
+        }
+        if (block->end_->op == TAC_GOTO) {
+            BasicBlock *ft_bb = block->fallthrough_;
+            if (!ft_bb->begin_.is_label()) {
+                ft_bb->insert_before(mk_tac(TAC_LABEL, mk_label(mk_lstr()), nullptr, nullptr));
+            }
+            if (begin == ft_bb->begin_->next) {
+                begin = ft_bb->begin_.get();
+            }
+            block->end_->a = ft_bb->begin_->a;
         }
         stack.push(block->fallthrough_);
     }
@@ -506,7 +521,7 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
     }
     std::unordered_set<SYM *> has_declared;
     for (TacProxy tac{begin}; tac && begin && end && tac.get() != end->next; tac = tac->next) {
-        if (const SymProxy sym{tac->a}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+        if (const SymProxy sym{tac->a}; sym && sym.is_variable() && !sym.is_global_variable() && !has_declared.count(sym.get())) {
             TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
             decl->prev = tac->prev;
             decl->next = tac.get();
@@ -516,7 +531,7 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
             has_declared.insert(sym.get());
         }
 
-        if (const SymProxy sym{tac->b}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+        if (const SymProxy sym{tac->b}; sym && sym.is_variable() && !sym.is_global_variable() && !has_declared.count(sym.get())) {
             TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
             decl->prev = tac->prev;
             decl->next = tac.get();
@@ -526,7 +541,7 @@ std::pair<TAC*, TAC*> FunctionCFG::to_tac() {
             has_declared.insert(sym.get());
         }
 
-        if (const SymProxy sym{tac->c}; sym && sym.is_variable() && !has_declared.count(sym.get())) {
+        if (const SymProxy sym{tac->c}; sym && sym.is_variable() && !sym.is_global_variable() && !has_declared.count(sym.get())) {
             TAC *decl = mk_tac(TAC_VAR, sym.get(), nullptr, nullptr);
             decl->prev = tac->prev;
             decl->next = tac.get();
@@ -558,8 +573,9 @@ bool BasicBlock::opt_constants_folding() const {
     bool optimized = false;
     for (auto t = begin_; t && t.get() != end_->next; t = t->next) {
         if (t->op >= TAC_MIN_CALC && t->op <= TAC_MAX_CALC) {
-            if (t->b->type == SYM_CONST && t->c->type == SYM_CONST) {
-                const int val_a = t->b->value, val_b = t->c->value;
+            if (t->b && t->b->type == SYM_CONST &&
+                (t->op == TAC_NEG || (t->c && t->c->type == SYM_CONST))) {
+                const int val_a = t->b->value, val_b = t->c ? t->c->value : 0;
                 int result = 0;
                 switch (t->op) {
                     case TAC_ADD:
@@ -629,6 +645,9 @@ bool BasicBlock::opt_common_subexpression_elimination() const {
     };
     std::list<TAC *> assignments;
     for (auto tac = begin_; tac && tac.get() != end_->next; tac = tac->next) {
+        if (tac.has_memory_effect()) {
+            assignments.clear();
+        }
         if (tac->op >= TAC_MIN_CALC && tac->op <= TAC_MAX_CALC) {
             bool flag = true;
             for (const auto &assignment: assignments) {
@@ -746,9 +765,13 @@ void FunctionCFG::remove_unnecessary_gotos_and_labels() {
                     ft_bb->begin_->prev = label_tac;
                     ft_bb->begin_ = label_tac;
                 }
-                block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
-                block->end_->next->prev = block->end_.get();
-                block->end_ = block->end_->next;
+                if (block->end_->op == TAC_GOTO) {
+                    block->end_->a = ft_bb->begin_->a;
+                } else {
+                    block->end_->next = mk_tac(TAC_GOTO, ft_bb->begin_->a, nullptr, nullptr);
+                    block->end_->next->prev = block->end_.get();
+                    block->end_ = block->end_->next;
+                }
 
             }
             continue;

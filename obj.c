@@ -12,7 +12,6 @@ int oof; /* offset of formal */
 int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
 
-#ifdef NEW_ASM
 // 这里使用value_type是为了正确读写数组
 #define STO(VALUE, REG_DESC, ...)\
     do {\
@@ -35,10 +34,6 @@ struct rdesc rdesc[R_NUM];
             error("unexpect value type %d\n", (VALUE)->value_type);\
         }\
     } while (0)
-#else
-#define STO(VALUE, REG_DESC, ...) out_str(file_s, "\tSTO " REG_DESC "\n", __VA_ARGS__)
-#define LOD(VALUE, REG_DESC, ...) out_str(file_s, "\tLOD " REG_DESC "\n", __VA_ARGS__)
-#endif
 
 static void rdesc_clear(const int r)
 {
@@ -66,13 +61,17 @@ static void asm_write_back(const int r)
     {
         if (rdesc[r].var->scope == 1) /* local var */
         {
-            STO(rdesc[r].var, "(R%u+%u),R%u", R_BP, rdesc[r].var->offset, r);
-            // out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
+            if (rdesc[r].var->value_type!=SYM_VAL_STRUCT){
+                STO(rdesc[r].var, "(R%u+%u),R%u", R_BP, rdesc[r].var->offset, r);
+                // out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
+            }
         } else /* global var */
         {
-            out_str(file_s, "\tLOD R%u,STATIC\n", R_TP);
-            STO(rdesc[r].var, "(R%u+%u),R%u", R_TP, rdesc[r].var->offset, r);
-            //  out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
+            if (rdesc[r].var->value_type!=SYM_VAL_STRUCT){
+                out_str(file_s, "\tLOD R%u,STATIC\n", R_TP);
+                STO(rdesc[r].var, "(R%u+%u),R%u", R_TP, rdesc[r].var->offset, r);
+                //  out_str(file_s, "\tSTO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
+            }
         }
         rdesc[r].mod = UNMODIFIED;
     }
@@ -591,26 +590,32 @@ static void asm_code(const TAC* c)
 
         case TAC_INPUT:
             r = reg_alloc(c->a);
-#ifdef NEW_ASM
             if (c->a->value_type == SYM_VAL_CHAR)
                 out_str(file_s, "\tITC\n");
             else if (c->a->value_type == SYM_VAL_INT)
                 out_str(file_s, "\tITI\n");
             else
                 error("cannot input unknown type");
-#else
-            out_str(file_s, "\tIN\n");
-#endif
             out_str(file_s, "\tLOD R%u,R15\n", r);
             rdesc[r].mod = MODIFIED;
             return;
 
         case TAC_OUTPUT:
-            if (c->a->type == SYM_VAR)
+            if (c->a->type == SYM_VAR || c->a->type == SYM_CONST)
             {
                 r = reg_alloc(c->a);
-                out_str(file_s, "\tLOD R15,R%u\n", r);
-#ifdef NEW_ASM
+                if (c->a->type == SYM_VAR) {
+                    if (c->a->indirection) {
+                        offset = rdesc[r].mod;
+                        asm_addr(c->a, c->a);
+                        rdesc[r].mod = offset;
+                        out_str(file_s, "\tLOD R15,R%u\n", r);
+                    } else {
+                        out_str(file_s, "\tLOD R15,R%u\n", r);
+                    }
+                } else {
+                    LOD(c->a, "R15, %d", c->a->value);
+                }
                 if (c->a->value_type == SYM_VAL_CHAR)
                 {
                     out_str(file_s, "\tOTC\n");
@@ -618,18 +623,11 @@ static void asm_code(const TAC* c)
                 {
                     out_str(file_s, "\tOTI\n");
                 }
-#else
-                out_str(file_s, "\tOUTN\n");
-#endif
             } else if (c->a->type == SYM_TEXT)
             {
                 r = reg_alloc(c->a);
                 out_str(file_s, "\tLOD R15,R%u\n", r);
-#ifdef NEW_ASM
                 out_str(file_s, "\tOTS\n");
-#else
-                out_str(file_s, "\tOUTS\n");
-#endif
             }
             return;
 

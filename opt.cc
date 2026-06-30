@@ -31,6 +31,12 @@ using namespace cfg;
 using namespace df;
 using namespace df::analysis;
 
+static bool uses_global_variable(const TAC *tac) {
+    if (!tac) return false;
+    const SymProxy a(tac->a), b(tac->b), c(tac->c);
+    return a.is_global_variable() || b.is_global_variable() || c.is_global_variable();
+}
+
 struct WhileBlock {
     BasicBlock *header, *preheader{nullptr};
     std::set<BasicBlock *> bodies;
@@ -282,6 +288,7 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                 for (auto tac: *bb) {
                     do {
                         if (tac.is_declaration() || !tac.defines_a() || tac.has_memory_effect()) break;
+                        if (const SymProxy sym_a(tac->a); sym_a.is_global_variable()) break;
                         // licm **不会**对简单的赋值语句做处理!其只针对计算表达式
                         if (const SymProxy sym_b(tac->b), sym_c(tac->c); tac.defines_a() && sym_b.is_const() && (!sym_c||sym_c.is_const())) break;
                         if (const SymProxy sym(tac->a); tac.use_a() && !is_invariant_sym(sym, rd_fact)) break;
@@ -304,6 +311,10 @@ static bool opt_loop_invariant_code_motion(FunctionCFG &fcfg) {
                         rd_fact.clear();
                     }
                     if (!tac.defines_a() || tac.is_declaration()) continue;
+                    if (const SymProxy sym_a(tac->a); sym_a.is_global_variable()) {
+                        rd_fact.clear();
+                        continue;
+                    }
                     if (const SymProxy sym_a(tac->a); sym_a.is_temporary()) continue;
                     const std::string name(tac->a->name);
                     // kill其他definition
@@ -481,7 +492,9 @@ static bool opt_dead_code_elimination(const CFG *cfg) {
             for (auto tac = bb->end_; tac && tac != bb->begin_->prev; tac = tac->prev) {
                 if (tac.defines_a() && !tac.has_memory_effect() && !tac.is_declaration()) {
                     const SymProxy a(tac->a);
-                    if (facts.contains(a) && !(tac.is_assignment() && tac->a == tac->b)) {
+                    if (a.is_global_variable()) {
+                        ;
+                    } else if (facts.contains(a) && !(tac.is_assignment() && tac->a == tac->b)) {
                         facts -= a;
                     } else {
                         // 无用赋值,删除
@@ -531,14 +544,15 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
         auto result = *solver.solve(fcfg).release();
         for (auto &bb: fcfg.blocks_) {
             auto definitions = result.get_in_fact(*bb).to_map();
+            std::unordered_set<TAC *> local_defs;
             for (auto &tac: *bb) {
                 if (tac.use_a()) {
                     const SymProxy a(tac->a);
                     const auto &defs = definitions.find(a.name());
-                    if (defs != definitions.end() && defs->second.size() == 1) {
+                    if (!a.is_global_variable() && defs != definitions.end() && defs->second.size() == 1) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
-                            if (another.is_const() || strcmp(tac->a->name, another->name)>0) {
+                            if ((another.is_const() || (local_defs.count(another_tac.get()) && strcmp(tac->a->name, another->name)>0)) && !another.is_global_variable()) {
                                 printf("block %d: '%s' replace tac->a('%s') to '%s'\n", bb->id(),tac.to_string().c_str(), tac->a->name, another->name);
                                 tac->a = another.get();
                                 changed = true;
@@ -546,13 +560,13 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                         }
                     }
                 }
-                if (tac.use_b()) {
+                if (tac.use_b() && tac->op != TAC_ADDR) {
                     const SymProxy b(tac->b);
                     const auto &defs = definitions.find(b.name());
-                    if (defs != definitions.end() && defs->second.size() == 1) {
+                    if (!b.is_global_variable() && defs != definitions.end() && defs->second.size() == 1) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
-                            if (another.is_const() || strcmp(tac->b->name, another->name)>0) {
+                            if ((another.is_const() || (local_defs.count(another_tac.get()) && strcmp(tac->b->name, another->name)>0)) && !another.is_global_variable()) {
                                 printf("block %d: '%s' replace tac->b('%s') to '%s'\n", bb->id(), tac.to_string().c_str(), tac->b->name, another->name);
                                 tac->b = another.get();
                                 changed = true;
@@ -563,10 +577,10 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                 if (tac.use_c()) {
                     const SymProxy c(tac->c);
                     const auto &defs = definitions.find(c.name());
-                    if (defs != definitions.end() && defs->second.size() == 1) {
+                    if (!c.is_global_variable() && defs != definitions.end() && defs->second.size() == 1) {
                         if (const TacProxy another_tac(defs->second.front()); another_tac.is_assignment()) {
                             const SymProxy another(another_tac->b);
-                            if (another.is_const() || strcmp(tac->c->name, another->name)>0) {
+                            if ((another.is_const() || (local_defs.count(another_tac.get()) && strcmp(tac->c->name, another->name)>0)) && !another.is_global_variable()) {
                                 printf("block %d: '%s' replace tac->c('%s') to '%s'\n", bb->id(), tac.to_string().c_str(), tac->c->name, another->name);
                                 tac->c = another.get();
                                 changed = true;
@@ -579,9 +593,14 @@ static bool opt_constant_and_copy_propagation(const CFG *cfg) {
                     definitions.clear();
                 }
                 if (tac.defines_a() && !tac.is_declaration()) {
+                    if (const SymProxy a(tac->a); a.is_global_variable()) {
+                        definitions.clear();
+                        continue;
+                    }
                     const std::string name{tac->a->name};
                     definitions.erase(name);
                     definitions[name].push_back(tac.get());
+                    local_defs.insert(tac.get());
                 }
             }
             // 对条件跳转结尾优化
@@ -627,7 +646,7 @@ static bool opt_common_subexpression_elimination(const CFG *cfg) {
             AvailableExpressionFacts ae_facts {ae_result.get_in_fact(*bb)};
             ReachingDefinitionFacts rd_facts {rd_result.get_in_fact(*bb)};
             for (auto tac = bb->begin_; tac && tac != bb->end_->next; tac = tac->next) {
-                if (tac.is_computable()) {
+                if (tac.is_computable() && !uses_global_variable(tac.get())) {
                     if (Expression exp(tac.get()); ae_facts.contains(exp)) {
                         // 尝试寻找可以替换的表达式
                         auto rd_facts_map = rd_facts.to_map();
@@ -665,6 +684,11 @@ static bool opt_common_subexpression_elimination(const CFG *cfg) {
                     ae_facts.clear();
                     rd_facts.clear();
                 } else if (tac.defines_a() && !tac.is_declaration()) {
+                    if (const SymProxy a(tac->a); a.is_global_variable()) {
+                        ae_facts.clear();
+                        rd_facts.clear();
+                        continue;
+                    }
                     AvailableExpressionFacts kill;
                     for (const auto &it: ae_facts) {
                         if (it.b == tac->a || it.c == tac->a) {

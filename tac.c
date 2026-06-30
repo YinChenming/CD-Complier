@@ -151,6 +151,7 @@ void tac_complete(void) {
 
 static SYM *mk_sym(void) {
     SYM *t = (SYM *) malloc(sizeof(SYM));
+    t->scope = scope;
     t->indirection = 0;
     t->dim_size = t->etc = t->name = NULL;
     t->value = t->value_size = t->value_type = 0;
@@ -180,6 +181,7 @@ SYM *mk_var(const char *name, const int type) {
         sym = insert_hash(&sym_hash_global, name);
     }
     sym->type = SYM_VAR;
+    sym->scope = scope;
     sym->name = strdup(name);
     sym->value_type = type;
     sym->value_size = get_size_of_type(type, -1); // the size of a pointer is 4
@@ -1291,9 +1293,6 @@ void print_structs(FILE *f) {
 }
 
 int get_size_of_type(const int type, const int default_val) {
-#ifndef NEW_ASM
-    return 4;
-#endif
     switch (type) {
         case SYM_VAL_BOOL:
             return BOOL_SIZE;

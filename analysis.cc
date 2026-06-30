@@ -4,6 +4,12 @@ using namespace df;
 using namespace analysis;
 using namespace cfg;
 
+static bool uses_global_variable(const TAC *tac) {
+    if (!tac) return false;
+    const SymProxy a(tac->a), b(tac->b), c(tac->c);
+    return a.is_global_variable() || b.is_global_variable() || c.is_global_variable();
+}
+
 std::unique_ptr<LiveVariableFacts> LiveVariableAnalysis::new_boundary_fact(const AbstractCFG<BasicBlock> &) {
     return std::make_unique<LiveVariableFacts>();
 }
@@ -54,6 +60,7 @@ void ReachingDefinitionAnalysis::insertDefinition(TAC *tac) {
     const TacProxy tp(tac);
     if (!tp.defines_a()) return;
     if (tp.is_declaration()) return;
+    if (const SymProxy a(tp->a); a.is_global_variable()) return;
     const std::string name(tp->a->name);
     value2gen_.try_emplace(name);
     value2gen_[name].insert(tac);
@@ -69,6 +76,7 @@ void ReachingDefinitionAnalysis::init(const AbstractCFG<BasicBlock> &cfg) {
     for (const auto &bb: cfg.nodes()) {
         for (const auto &tac: *bb) {
             if (!tac || !tac.defines_a() || tac.is_declaration()) continue;
+            if (const SymProxy a(tac->a); a.is_global_variable()) continue;
             const std::string name(tac->a->name);
             value2gen_.try_emplace(name);
             value2gen_[name].insert(tac.get());
@@ -94,6 +102,10 @@ bool ReachingDefinitionAnalysis::transfer_node(const BasicBlock &bb, ReachingDef
             new_out_fact.clear();
         }
         if (!tac.defines_a() || tac.is_declaration()) continue;
+        if (const SymProxy a(tac->a); a.is_global_variable()) {
+            new_out_fact.clear();
+            continue;
+        }
         // if (const SymProxy sym_a(tac->a); sym_a.is_temporary()) continue;
         const std::string name(tac->a->name);
         // kill其他definition
@@ -129,7 +141,7 @@ std::unique_ptr<AvailableExpressionFacts> AvailableExpressionAnalysis::new_initi
     auto result = std::make_unique<AvailableExpressionFacts>();
     for (const auto &bb: cfg.nodes()) {
         for (const auto &tac: *bb) {
-            if (tac.is_computable()) {
+            if (tac.is_computable() && !uses_global_variable(tac.get())) {
                 *result += Expression(tac.get());
             }
         }
@@ -148,12 +160,16 @@ bool AvailableExpressionAnalysis::transfer_node(const BasicBlock &bb, AvailableE
     AvailableExpressionFacts new_out_fact{in_fact};
     for (const auto &tac: bb) {
         // 先 gen 再 kill,让形如a=a+b的表达式不要加入out_fact
-        if (tac.is_computable()) {
+        if (tac.is_computable() && !uses_global_variable(tac.get())) {
             new_out_fact += Expression(tac.get());
         }
         if (tac.has_memory_effect()) {
             new_out_fact.clear();
         } else if (tac.defines_a() && !tac.is_declaration()) {
+            if (const SymProxy a(tac->a); a.is_global_variable()) {
+                new_out_fact.clear();
+                continue;
+            }
             AvailableExpressionFacts kill;
             for (const auto &it: new_out_fact) {
                 if (it.b == tac->a || it.c == tac->a) {

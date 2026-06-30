@@ -4,6 +4,7 @@
 %}
 
 %option yylineno
+%x C_COMMENT
 
 %%
 
@@ -39,7 +40,7 @@
 
 "->"  {  return RIGHT_ARROW;  }
 
-[A-Za-z]([A-Za-z]|[0-9])*  {
+[A-Za-z_]([A-Za-z]|[0-9]|_)*  {
 	yylval.string = strdup(yytext);
 	return IDENTIFIER;
 }
@@ -71,7 +72,15 @@
 
 ">"  {  return GT;  }
 
-[ \t\r\n]|#.*
+"//".*
+
+"/*"                { BEGIN(C_COMMENT); }
+<C_COMMENT>"*/"     { BEGIN(INITIAL); }
+<C_COMMENT>[^*\n]+  {}
+<C_COMMENT>"*"      {}
+<C_COMMENT>"\n"     { yylineno++; }
+
+[ \t\r\n]
 
 . 	{	return *yytext; }
 

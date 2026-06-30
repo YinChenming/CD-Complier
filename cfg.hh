@@ -137,6 +137,7 @@ namespace cfg {
             if (!tac_)
                 return false;
             if (tac_->op == TAC_STORE) return true;
+            if (tac_->op == TAC_CALL) return true;
             if (!tac_->a) return false;
             if (tac_->op == TAC_VAR) return true;
             if (tac_->op == TAC_COPY) return true;
@@ -154,6 +155,7 @@ namespace cfg {
             if (tac_->op == TAC_COPY) return true;
             if (tac_->op == TAC_ADDR) return true;
             if (tac_->op == TAC_DEREF) return true;
+            if (tac_->op == TAC_CALL) return true;
             if (is_computable()) return true;
             return false;
         }
@@ -165,6 +167,7 @@ namespace cfg {
             if (!tac_ || !tac_->a) return false;
             if (tac_->op == TAC_OUTPUT) return true;
             if (tac_->op == TAC_ACTUAL) return true;
+            if (tac_->op == TAC_FORMAL) return true;
             if (tac_->op == TAC_RETURN) return true;
             if (tac_->op == TAC_STORE) return true;
             return false;
@@ -173,8 +176,8 @@ namespace cfg {
             if (!tac_ || !tac_->b) return false;
             if (tac_->op >= TAC_MIN_CALC && tac_->op <= TAC_MAX_CALC) return true;
             if (tac_->op == TAC_COPY) return true;
+            if (tac_->op == TAC_ADDR) return true;
             if (tac_->op == TAC_OUTPUT) return true;
-            if (tac_->op == TAC_FORMAL) return true;
             if (tac_->op == TAC_RETURN) return true;
             if (tac_->op == TAC_IFZ) return true;
             if (tac_->op == TAC_DEREF) return true;
@@ -299,6 +302,9 @@ namespace cfg {
         }
         [[nodiscard]] bool is_variable() const {
             return sym_ && sym_->type == SYM_VAR;
+        }
+        [[nodiscard]] bool is_global_variable() const {
+            return sym_ && sym_->type == SYM_VAR && sym_->scope == SCOPE_GLOBAL;
         }
         [[nodiscard]] bool is_temporary() const {
             return sym_ && sym_->name && sym_->name[0] == '$';

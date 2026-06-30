@@ -74,11 +74,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         if (!strcmp(arg, "-v") || !strcmp(arg, "--version")) {
-#ifdef NEW_ASM
             printf("mini (optimized for new virtual machine) 1.0.0\n");
-#else
-            printf("mini (optimized for old virtual machine) 1.0.0\n");
-#endif
             return 0;
         }
         if (!strcmp(arg, "-nCBE")) {
