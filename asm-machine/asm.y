@@ -550,7 +550,8 @@ int main(int argc,   char *argv[])
 	}
 
 	int i=sizeof(label);
-	bzero(label, i);
+	// bzero(label, i);
+	memset(label, 0, i);
 
 	/* First pass, set up labels */
 	pass=1;

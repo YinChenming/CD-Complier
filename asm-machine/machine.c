@@ -36,7 +36,8 @@ int main(int argc, char *argv[]) {
         exit(0);
     }
 
-    int i, ch, t, t1, t2;
+    int i, ch, t;
+    // int t1, t2;
 
     /* init reg */
     for (i = 0; i < REGMAX; i++)

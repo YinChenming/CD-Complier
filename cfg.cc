@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <fstream>
 #include <list>
 #include <set>
@@ -10,6 +11,49 @@
 #include <stdexcept> // for std::runtime_error
 
 using namespace cfg;
+
+namespace {
+template <typename Writer>
+std::string write_to_temp_stream(Writer writer) {
+    FILE *temp_file = tmpfile();
+    if (!temp_file) {
+        throw std::runtime_error("failed to create temporary file");
+    }
+
+    writer(temp_file);
+
+    if (fflush(temp_file) != 0) {
+        fclose(temp_file);
+        throw std::runtime_error("failed to flush temporary file");
+    }
+    if (fseek(temp_file, 0, SEEK_END) != 0) {
+        fclose(temp_file);
+        throw std::runtime_error("failed to seek temporary file");
+    }
+
+    const long file_size = ftell(temp_file);
+    if (file_size < 0) {
+        fclose(temp_file);
+        throw std::runtime_error("failed to get temporary file size");
+    }
+    if (fseek(temp_file, 0, SEEK_SET) != 0) {
+        fclose(temp_file);
+        throw std::runtime_error("failed to rewind temporary file");
+    }
+
+    std::string result(static_cast<size_t>(file_size), '\0');
+    if (file_size > 0) {
+        const size_t bytes_read = fread(result.data(), 1, result.size(), temp_file);
+        if (bytes_read != result.size()) {
+            fclose(temp_file);
+            throw std::runtime_error("failed to read temporary file");
+        }
+    }
+
+    fclose(temp_file);
+    return result;
+}
+}
 
 static bool is_label(const int op){
     return op == TAC_LABEL;
@@ -164,14 +208,9 @@ void FunctionCFG::init(TAC *start_tac, const TAC *end_tac) {
 
 std::string TacProxy::to_string() const {
     if (tac_ == nullptr) return "";
-    char *buffer = nullptr;
-    size_t size = 0;
-    FILE *mem_file = open_memstream(&buffer, &size);
-    out_tac(mem_file, tac_);
-    fclose(mem_file);
-    auto result = std::string(buffer, size);
-    free(buffer);
-    return result;
+    return write_to_temp_stream([this](FILE *file) {
+        out_tac(file, tac_);
+    });
 }
 
 
@@ -179,24 +218,17 @@ std::string FunctionCFG::block2dot(BasicBlock *block) {
     if (!block->begin_) {
         return "empty block, no TAC!";
     }
-    char * buffer = nullptr;
-    size_t size = 0;
-    FILE *mem_file = open_memstream(&buffer, &size);
-    int i = 1;
-    for (auto ptac=block->begin_; ptac && ptac.get() != block->end_.get(); ptac=ptac->next) {
-        fprintf(mem_file, "(%d) ", i++);
-        out_tac(mem_file, ptac.get());
-        fprintf(mem_file, "\\l");
-    }
-    fprintf(mem_file, "(%d) ", i);
-    out_tac(mem_file, block->end_.get());
-    fprintf(mem_file, "\\l");
-
-    // 不能在close之前读取buffer!!!
-    fclose(mem_file);
-    auto result = std::string(buffer, size);
-    free(buffer);
-    return result;
+    return write_to_temp_stream([block](FILE *file) {
+        int i = 1;
+        for (auto ptac=block->begin_; ptac && ptac.get() != block->end_.get(); ptac=ptac->next) {
+            fprintf(file, "(%d) ", i++);
+            out_tac(file, ptac.get());
+            fprintf(file, "\\l");
+        }
+        fprintf(file, "(%d) ", i);
+        out_tac(file, block->end_.get());
+        fprintf(file, "\\l");
+    });
 }
 
 std::string FunctionCFG::to_dot() const {

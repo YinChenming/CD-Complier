@@ -6,6 +6,8 @@ CFLAGS = -I. -I$(OUT_DIR_NAME) -I$(ASM_MACHINE_DIR_NAME) -Wall -Wextra -Wno-unus
 CXXFLAGS = -I. -I$(OUT_DIR_NAME) -I$(ASM_MACHINE_DIR_NAME) -Wall -Wextra -Wno-unused-function
 YYFLAGS = -d # -Wall -Wcounterexamples
 
+CC = gcc
+CXX = g++
 CFLAGS += -g3
 CXXFLAGS += -g3 -std=c++17
 TARGETS = mini asm machine
@@ -24,7 +26,7 @@ machine: $(ASM_MACHINE_DIR)/machine.c $(ASM_MACHINE_DIR)/inst.h | $(OUT_DIR)
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUT_DIR):
-	@mkdir $(OUT_DIR)
+	mkdir $(OUT_DIR_NAME)
 
 $(OUT_DIR)/%.o: %.c | $(OUT_DIR)
 	$(CC) $(CFLAGS) $< -c -o $@
@@ -48,7 +50,7 @@ $(OUT_DIR)/main.o: $(OUT_DIR)/mini.y.h
 
 test: $(t).m
 	@$(MAKE) clean_dot
-	@find ./ | grep -E '^\./[^.].*\.(g|txt)$$' | xargs rm -f
+	@find ./ | grep -E "^\./[^.].*\.(g|txt)$$" | xargs rm -f
 	./mini $(t).m > $(t)_report.txt
 	$(MAKE) dot; \
 	./asm $(t).s; \
@@ -71,8 +73,8 @@ $(DOT_DIR)/:
 	@mkdir $(DOT_DIR)
 
 clean:
-	@find ./ | grep -E '^\./[^.].*\.(o|s|x|dot|png|g|svg|txt)$$' | xargs rm -f
-	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o *.g core $(TARGETS) $(DOT_DIR) *.dSYM
+	@find ./ | grep -E "^\./[^.].*\.(o|s|x|dot|png|g|svg|txt)$$" | xargs rm -f
+	@rm -fr $(OUT_DIR) *.l.* *.y.* *.s *.x *.o *.g *.exe core $(TARGETS) $(DOT_DIR) *.dSYM
 
 w: YYFLAGS += -Wall -Wcounterexamples
 

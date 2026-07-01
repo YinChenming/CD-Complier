@@ -178,10 +178,10 @@ namespace cfg {
             if (tac_->op == TAC_COPY) return true;
             if (tac_->op == TAC_ADDR) return true;
             if (tac_->op == TAC_OUTPUT) return true;
-            if (tac_->op == TAC_RETURN) return true;
             if (tac_->op == TAC_IFZ) return true;
             if (tac_->op == TAC_DEREF) return true;
             if (tac_->op == TAC_STORE) return true;
+            if (tac_->op == TAC_CALL) return true;
             return false;
         }
         [[nodiscard]] bool use_c() const {
@@ -521,7 +521,7 @@ namespace cfg {
                     index_ = static_cast<size_t>(-1);
                     return;
                 }
-                if (i < cfg_->blocks_.size()) {
+                if (i < cfg_->blocks_.size()+2) {
                     index_ = i;
                 } else {
                     cfg_ = nullptr;
@@ -529,7 +529,7 @@ namespace cfg {
             }
             FunctionCFGIterator &operator++() {
                 index_++;
-                if (index_ >= cfg_->blocks_.size()) {
+                if (index_ >= cfg_->blocks_.size()+2) {
                     index_ = -1;
                     cfg_ = nullptr;
                 }
@@ -545,6 +545,8 @@ namespace cfg {
             BasicBlock *operator->() const {
                 if (!cfg_ || index_ == static_cast<size_t>(-1))
                     return nullptr;
+                if (index_ == cfg_->blocks_.size()) return &cfg_->begin_block_;
+                if (index_ == cfg_->blocks_.size()+1) return &cfg_->end_block_;
                 return cfg_->blocks_[index_].get();
             }
         };

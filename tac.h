@@ -100,6 +100,8 @@ typedef struct sym {
     struct tac *address; /* SYM_FUNC */
     struct sym *struct_sym;
     struct sym *next;
+    int color;
+    int register_id;
     void *etc;
 } SYM;
 

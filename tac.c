@@ -186,6 +186,14 @@ SYM *mk_var(const char *name, const int type) {
     sym->value_type = type;
     sym->value_size = get_size_of_type(type, -1); // the size of a pointer is 4
     sym->offset = -1; /* Unset address */
+    sym->value = 0;
+    sym->indirection = 0;
+    sym->label = 0;
+    sym->next = NULL;
+    sym->address = NULL;
+    sym->dim_size = NULL;
+    sym->etc = NULL;
+    sym->color = sym->register_id = 0;
 
     return sym;
 }
